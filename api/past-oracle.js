@@ -27,10 +27,7 @@ export default function handler(req, res) {
     const reverseScanBands = dobReady ? buildReverseScanBands(ageContext) : [];
     const memoryAnchorScan = buildMemoryAnchorScan(mode, dobReady, hasName, ageContext);
     const nameVibrationBlock = buildNameVibrationBlock(rawName, hasName, dobReady);
-    const forensicConfidence = buildForensicConfidence(mode, dobReady, hasName, hasQuestion);
-    const domainReadiness = buildDomainReadiness(mode, dobReady, hasName);
     const questionRouting = buildQuestionRouting(rawQuestion, hasQuestion);
-
     const eventDensityLogic = buildEventDensityLogic({
       mode,
       dobReady,
@@ -38,20 +35,17 @@ export default function handler(req, res) {
       hasQuestion,
       questionRouting
     });
-
     const eventSignalMap = buildEventSignalMap({
       mode,
       dobReady,
       hasName,
       questionRouting
     });
-
     const yearBandNarrowing = buildYearBandNarrowing({
       dobReady,
       ageContext,
       eventDensityLogic
     });
-
     const anchorConvergence = buildAnchorConvergence({
       dobReady,
       hasName,
@@ -59,7 +53,6 @@ export default function handler(req, res) {
       eventSignalMap,
       yearBandNarrowing
     });
-
     const timelineTruthExtraction = buildTimelineTruthExtraction({
       dobReady,
       hasName,
@@ -69,6 +62,36 @@ export default function handler(req, res) {
       eventSignalMap,
       anchorConvergence
     });
+
+    const contradictionFilter = buildContradictionFilter({
+      mode,
+      dobReady,
+      hasName,
+      questionRouting,
+      eventSignalMap,
+      timelineTruthExtraction
+    });
+
+    const multiEventDetection = buildMultiEventDetection({
+      dobReady,
+      hasName,
+      eventDensityLogic,
+      eventSignalMap,
+      anchorConvergence,
+      questionRouting
+    });
+
+    const forensicConfidence = buildForensicConfidence({
+      mode,
+      dobReady,
+      hasName,
+      hasQuestion,
+      contradictionFilter,
+      anchorConvergence,
+      multiEventDetection
+    });
+
+    const domainReadiness = buildDomainReadiness(mode, dobReady, hasName);
 
     const forensicSummary = buildForensicSummary({
       mode,
@@ -82,6 +105,8 @@ export default function handler(req, res) {
       yearBandNarrowing,
       timelineTruthExtraction,
       anchorConvergence,
+      contradictionFilter,
+      multiEventDetection,
       forensicConfidence
     });
 
@@ -91,7 +116,20 @@ export default function handler(req, res) {
       hasName,
       questionRouting,
       timelineTruthExtraction,
-      eventSignalMap
+      eventSignalMap,
+      multiEventDetection
+    });
+
+    const forensicVerdictBlock = buildForensicVerdictBlock({
+      mode,
+      dobReady,
+      hasName,
+      hasQuestion,
+      questionRouting,
+      contradictionFilter,
+      multiEventDetection,
+      forensicConfidence,
+      timelineTruthExtraction
     });
 
     const verdict = buildVerdict({
@@ -111,6 +149,9 @@ export default function handler(req, res) {
       eventSignalMap,
       yearBandNarrowing,
       timelineTruthExtraction,
+      contradictionFilter,
+      multiEventDetection,
+      forensicVerdictBlock,
       forensicSummary,
       lokkothaSummary,
       verdict
@@ -118,7 +159,7 @@ export default function handler(req, res) {
 
     const response = {
       endpoint_called: "past-oracle.js",
-      engine_status: "PAST_FORENSIC_ENGINE_PHASE_4",
+      engine_status: "PAST_FORENSIC_ENGINE_PHASE_5",
       system_status: "ACTIVE",
       generated_at_utc: now.toISOString(),
 
@@ -162,10 +203,6 @@ export default function handler(req, res) {
 
       name_vibration_fallback: nameVibrationBlock,
 
-      forensic_confidence: forensicConfidence,
-
-      domain_readiness: domainReadiness,
-
       question_routing: questionRouting,
 
       event_density_logic: eventDensityLogic,
@@ -178,18 +215,28 @@ export default function handler(req, res) {
 
       timeline_truth_extraction: timelineTruthExtraction,
 
+      contradiction_filter: contradictionFilter,
+
+      multi_event_detection: multiEventDetection,
+
+      forensic_confidence: forensicConfidence,
+
+      domain_readiness: domainReadiness,
+
       forensic_summary: forensicSummary,
 
       lokkotha_summary: lokkothaSummary,
 
+      forensic_verdict_block: forensicVerdictBlock,
+
       premium_past_forensic_output: {
-        current_stage: "EVENT_SIGNAL_AND_YEAR_BAND_PHASE",
-        next_stage: "QUESTION_LOCK_AND_PASTE_OPTIMIZATION",
+        current_stage: "QUESTION_LOCK_AND_EVENT_VERDICT_PHASE",
+        next_stage: "FINAL_GPT_INTEGRATION_READY",
         notes: [
-          "Event signals are now mapped by domain",
-          "Approximate year bands are now narrowed when DOB is supplied",
-          "Anchor convergence layer is active",
-          "Readable and lokkotha summaries are stronger and more domain-aware"
+          "Question lock precision is now active",
+          "Contradiction filter is now active",
+          "Single-vs-multiple event detection is now active",
+          "Paste block now carries stronger verdict language"
         ]
       },
 
@@ -202,7 +249,7 @@ export default function handler(req, res) {
   } catch (error) {
     return res.status(500).json({
       endpoint_called: "past-oracle.js",
-      engine_status: "PAST_FORENSIC_ENGINE_PHASE_4",
+      engine_status: "PAST_FORENSIC_ENGINE_PHASE_5",
       system_status: "ERROR",
       error_message: error instanceof Error ? error.message : "Unknown error"
     });
@@ -419,63 +466,14 @@ function buildNameVibrationBlock(name, hasName, dobReady) {
   };
 }
 
-function buildForensicConfidence(mode, dobReady, hasName, hasQuestion) {
-  let score = 20;
-  const reasons = [];
-
-  if (dobReady) {
-    score += 45;
-    reasons.push("Valid DOB supplied");
-  }
-
-  if (hasName) {
-    score += 15;
-    reasons.push("Name supplied");
-  }
-
-  if (hasQuestion) {
-    score += 10;
-    reasons.push("Question context supplied");
-  }
-
-  if (mode === "NO_INPUT") {
-    reasons.push("No usable forensic intake");
-  }
-
-  if (!dobReady && hasName) {
-    reasons.push("Name-only fallback reduces precision");
-  }
-
-  let band = "LOW";
-  if (score >= 70) band = "HIGH";
-  else if (score >= 45) band = "MEDIUM";
-
-  return {
-    confidence_score: score,
-    confidence_band: band,
-    reasons
-  };
-}
-
-function buildDomainReadiness(mode, dobReady, hasName) {
-  return {
-    relationship_domain: dobReady || hasName ? "READY" : "WAITING_INPUT",
-    work_domain: dobReady || hasName ? "READY" : "WAITING_INPUT",
-    money_domain: dobReady || hasName ? "READY" : "WAITING_INPUT",
-    authority_domain: dobReady || hasName ? "READY" : "WAITING_INPUT",
-    family_domain: dobReady || hasName ? "READY" : "WAITING_INPUT",
-    root_cause_forensics: dobReady ? "DOB_READY" : hasName ? "NAME_LIMITED" : "NOT_READY",
-    mode_summary: mode
-  };
-}
-
 function buildQuestionRouting(question, hasQuestion) {
   if (!hasQuestion) {
     return {
       status: "INACTIVE",
       target_domain: "GENERAL_FORENSIC",
       intent_type: "NONE",
-      route_reason: "No question supplied"
+      route_reason: "No question supplied",
+      precision_lock: "OFF"
     };
   }
 
@@ -502,7 +500,8 @@ function buildQuestionRouting(question, hasQuestion) {
     status: "ACTIVE",
     target_domain: targetDomain,
     intent_type: intentType,
-    route_reason: "Question language was mapped into a forensic domain"
+    route_reason: "Question language was mapped into a forensic domain",
+    precision_lock: "ON"
   };
 }
 
@@ -722,6 +721,178 @@ function buildTimelineTruthExtraction({
   };
 }
 
+function buildContradictionFilter({
+  mode,
+  dobReady,
+  hasName,
+  questionRouting,
+  eventSignalMap,
+  timelineTruthExtraction
+}) {
+  if (mode === "NO_INPUT") {
+    return {
+      status: "ACTIVE",
+      contradiction_found: true,
+      severity: "HIGH",
+      note: "No usable forensic intake"
+    };
+  }
+
+  if (!dobReady && hasName) {
+    return {
+      status: "ACTIVE",
+      contradiction_found: false,
+      severity: "LOW",
+      note: "Name-only mode is limited but internally coherent"
+    };
+  }
+
+  const mismatch =
+    !questionRouting ||
+    !eventSignalMap ||
+    !timelineTruthExtraction ||
+    !eventSignalMap.dominant_signal_family ||
+    !timelineTruthExtraction.dominant_truth_zone;
+
+  return {
+    status: "ACTIVE",
+    contradiction_found: mismatch,
+    severity: mismatch ? "MEDIUM" : "NONE",
+    note: mismatch
+      ? "Some forensic layers did not align cleanly"
+      : "Question route, signal map, and truth extraction are aligned"
+  };
+}
+
+function buildMultiEventDetection({
+  dobReady,
+  hasName,
+  eventDensityLogic,
+  eventSignalMap,
+  anchorConvergence,
+  questionRouting
+}) {
+  if (!dobReady && !hasName) {
+    return {
+      status: "LOCKED",
+      event_shape: "UNDETERMINED",
+      event_count_bias: "NONE"
+    };
+  }
+
+  if (!dobReady && hasName) {
+    return {
+      status: "LIMITED",
+      event_shape: "REPEATING_PATTERN",
+      event_count_bias: "MULTIPLE_LIGHT",
+      note: "Name-only fallback is better at detecting repeats than exact singular events"
+    };
+  }
+
+  let shape = "SINGLE_DOMINANT_EVENT";
+  let bias = "SINGLE_STRONG";
+
+  if (
+    eventDensityLogic.dominant_band === "RECENT_0_TO_3_YEARS" &&
+    anchorConvergence.convergence_grade === "HIGH"
+  ) {
+    shape = "SINGLE_DOMINANT_EVENT";
+    bias = "SINGLE_STRONG";
+  } else if (questionRouting.status === "ACTIVE") {
+    shape = "QUESTION_CLUSTER";
+    bias = "MULTIPLE_RELATED";
+  } else if (eventSignalMap.signal_markers.length >= 5) {
+    shape = "PRESSURE_CLUSTER";
+    bias = "MULTIPLE_RELATED";
+  }
+
+  return {
+    status: "ACTIVE",
+    event_shape: shape,
+    event_count_bias: bias,
+    note: "This indicates whether the forensic pattern looks like one main event or a cluster"
+  };
+}
+
+function buildForensicConfidence({
+  mode,
+  dobReady,
+  hasName,
+  hasQuestion,
+  contradictionFilter,
+  anchorConvergence,
+  multiEventDetection
+}) {
+  let score = 20;
+  const reasons = [];
+
+  if (dobReady) {
+    score += 45;
+    reasons.push("Valid DOB supplied");
+  }
+
+  if (hasName) {
+    score += 15;
+    reasons.push("Name supplied");
+  }
+
+  if (hasQuestion) {
+    score += 10;
+    reasons.push("Question context supplied");
+  }
+
+  if (anchorConvergence.convergence_grade === "HIGH") {
+    score += 10;
+    reasons.push("Anchor convergence high");
+  } else if (anchorConvergence.convergence_grade === "MEDIUM") {
+    score += 5;
+    reasons.push("Anchor convergence medium");
+  }
+
+  if (contradictionFilter.contradiction_found) {
+    score -= 15;
+    reasons.push("Contradiction detected");
+  }
+
+  if (multiEventDetection.event_shape === "QUESTION_CLUSTER") {
+    score += 3;
+    reasons.push("Question-locked clustering active");
+  }
+
+  if (mode === "NO_INPUT") {
+    reasons.push("No usable forensic intake");
+  }
+
+  if (!dobReady && hasName) {
+    reasons.push("Name-only fallback reduces precision");
+  }
+
+  if (score < 0) score = 0;
+  if (score > 100) score = 100;
+
+  let band = "LOW";
+  if (score >= 75) band = "HIGH";
+  else if (score >= 45) band = "MEDIUM";
+
+  return {
+    confidence_score: score,
+    confidence_band: band,
+    reasons
+  };
+}
+
+function buildDomainReadiness(mode, dobReady, hasName) {
+  return {
+    relationship_domain: dobReady || hasName ? "READY" : "WAITING_INPUT",
+    work_domain: dobReady || hasName ? "READY" : "WAITING_INPUT",
+    money_domain: dobReady || hasName ? "READY" : "WAITING_INPUT",
+    authority_domain: dobReady || hasName ? "READY" : "WAITING_INPUT",
+    family_domain: dobReady || hasName ? "READY" : "WAITING_INPUT",
+    root_cause_forensics: dobReady ? "DOB_READY" : hasName ? "NAME_LIMITED" : "NOT_READY",
+    mode_summary: mode
+  };
+}
+
 function buildForensicSummary({
   mode,
   dobReady,
@@ -734,6 +905,8 @@ function buildForensicSummary({
   yearBandNarrowing,
   timelineTruthExtraction,
   anchorConvergence,
+  contradictionFilter,
+  multiEventDetection,
   forensicConfidence
 }) {
   let readableSummary = "";
@@ -748,7 +921,8 @@ function buildForensicSummary({
     readableSummary =
       `A DOB-anchored reverse scan is active. The strongest recall pressure is concentrated in ${eventDensityLogic.dominant_band}, with secondary support from ${eventDensityLogic.secondary_band}. ` +
       `The dominant signal family is ${eventSignalMap.dominant_signal_family}, and the clearest truth zone is ${timelineTruthExtraction.dominant_truth_zone}. ` +
-      `Approximate narrowing currently points to ${yearBandNarrowing.narrowed_window_label}.`;
+      `Approximate narrowing currently points to ${yearBandNarrowing.narrowed_window_label}. ` +
+      `Event structure currently reads as ${multiEventDetection.event_shape}.`;
   }
 
   return {
@@ -759,11 +933,20 @@ function buildForensicSummary({
     lifecycle_stage: ageContext ? ageContext.lifecycle_stage : null,
     question_guided: hasQuestion,
     anchor_convergence: anchorConvergence.convergence_grade,
+    contradiction_status: contradictionFilter.contradiction_found ? "PRESENT" : "CLEAR",
     routed_domain: questionRouting.target_domain
   };
 }
 
-function buildLokkothaSummary({ mode, dobReady, hasName, questionRouting, timelineTruthExtraction, eventSignalMap }) {
+function buildLokkothaSummary({
+  mode,
+  dobReady,
+  hasName,
+  questionRouting,
+  timelineTruthExtraction,
+  eventSignalMap,
+  multiEventDetection
+}) {
   if (mode === "NO_INPUT") {
     return {
       status: "ACTIVE",
@@ -780,12 +963,19 @@ function buildLokkothaSummary({ mode, dobReady, hasName, questionRouting, timeli
     };
   }
 
+  const clusterTag =
+    multiEventDetection.event_shape === "SINGLE_DOMINANT_EVENT"
+      ? "একটা বড় ঢেউ"
+      : multiEventDetection.event_shape === "QUESTION_CLUSTER"
+      ? "একই স্রোতের কয়েকটা ঢেউ"
+      : "চাপের ঝাঁক";
+
   const map = {
-    RELATIONSHIP: "মনের বাঁধন যেখানে আলগা হয়েছিল, কথার সুঁতো সেখানেই আগে কেঁপেছিল।",
-    MONEY_WORK: "হাঁড়ির আগুন নিভে না এক ঝড়ে; আগে দরজায় থমকায় দর কষাকষি, পরে টাকার হাঁড়ি ঠান্ডা হয়।",
-    FAMILY: "ঘরের ভার চুপে নামে, কিন্তু তার শব্দ সংসারের চালেই আগে বাজে।",
-    AUTHORITY_PAPERWORK: "কাগজের কাঁটা ছোট, কিন্তু গায়ে বিঁধলে পথের গতি অনেকখানি থামে।",
-    GENERAL_FORENSIC: "যে ঢেউ আজও মনে লাগে, তার পাথর আগেই জলে পড়েছিল।"
+    RELATIONSHIP: `${clusterTag} আগে কথার সুঁতোয় লাগে, পরে মনের বাঁধনে ফাটল তোলে।`,
+    MONEY_WORK: `${clusterTag} আগে লেনদেনের টেবিলে থামে, পরে রোজগারের হাঁড়িতে ঠান্ডা নামে।`,
+    FAMILY: `${clusterTag} আগে বুকের ভিতরে ভার ফেলে, পরে ঘরের চালায় তার শব্দ ওঠে।`,
+    AUTHORITY_PAPERWORK: `${clusterTag} আগে কাগজে কাঁটা ফোটায়, পরে পথের গতি আটকে দেয়।`,
+    GENERAL_FORENSIC: `${clusterTag} আজও মনে লাগে, মানে তার পাথর আগেই জলে পড়েছিল।`
   };
 
   return {
@@ -794,6 +984,52 @@ function buildLokkothaSummary({ mode, dobReady, hasName, questionRouting, timeli
     text: map[questionRouting.target_domain] || map.GENERAL_FORENSIC,
     dominant_truth_zone: timelineTruthExtraction.dominant_truth_zone,
     signal_family: eventSignalMap.dominant_signal_family
+  };
+}
+
+function buildForensicVerdictBlock({
+  mode,
+  dobReady,
+  hasName,
+  hasQuestion,
+  questionRouting,
+  contradictionFilter,
+  multiEventDetection,
+  forensicConfidence,
+  timelineTruthExtraction
+}) {
+  if (mode === "NO_INPUT") {
+    return {
+      status: "WAITING",
+      verdict_type: "NO_INTAKE",
+      plain_verdict: "No forensic truth can be judged yet",
+      question_lock_status: "OFF"
+    };
+  }
+
+  if (!dobReady && hasName) {
+    return {
+      status: "LIMITED",
+      verdict_type: "NAME_FALLBACK_ONLY",
+      plain_verdict: "A repeating pattern is likely, but exact past-event truth remains limited without DOB",
+      question_lock_status: hasQuestion ? "SOFT" : "OFF"
+    };
+  }
+
+  return {
+    status: "ACTIVE",
+    verdict_type:
+      multiEventDetection.event_shape === "SINGLE_DOMINANT_EVENT"
+        ? "SINGLE_EVENT_DOMINANT"
+        : multiEventDetection.event_shape === "QUESTION_CLUSTER"
+        ? "QUESTION_LINKED_EVENT_CLUSTER"
+        : "PRESSURE_CLUSTER_DOMINANT",
+    plain_verdict:
+      contradictionFilter.contradiction_found
+        ? "A past pattern is visible, but some internal signals are not fully aligned"
+        : `The strongest past truth appears in ${timelineTruthExtraction.dominant_truth_zone}, with ${multiEventDetection.event_shape} structure`,
+    question_lock_status: hasQuestion ? "HARD" : "GENERAL",
+    confidence_band: forensicConfidence.confidence_band
   };
 }
 
@@ -806,6 +1042,9 @@ function buildProjectPasteBlock({
   eventSignalMap,
   yearBandNarrowing,
   timelineTruthExtraction,
+  contradictionFilter,
+  multiEventDetection,
+  forensicVerdictBlock,
   forensicSummary,
   lokkothaSummary,
   verdict
@@ -822,18 +1061,21 @@ function buildProjectPasteBlock({
   lines.push(`Dominant Recall Band: ${eventDensityLogic.dominant_band || "N/A"}`);
   lines.push(`Secondary Recall Band: ${eventDensityLogic.secondary_band || "N/A"}`);
   lines.push(`Event Signal Family: ${eventSignalMap.dominant_signal_family || "N/A"}`);
-  lines.push(
-    `Approximate Narrowed Window: ${yearBandNarrowing.narrowed_window_label || "N/A"}`
-  );
+  lines.push(`Approximate Narrowed Window: ${yearBandNarrowing.narrowed_window_label || "N/A"}`);
 
   lines.push(`Dominant Truth Zone: ${timelineTruthExtraction.dominant_truth_zone || "N/A"}`);
   lines.push(`Secondary Truth Zone: ${timelineTruthExtraction.secondary_truth_zone || "N/A"}`);
+  lines.push(`Event Shape: ${multiEventDetection.event_shape || "N/A"}`);
+  lines.push(`Contradiction Status: ${contradictionFilter.contradiction_found ? "PRESENT" : "CLEAR"}`);
 
   lines.push("Readable Summary:");
   lines.push(forensicSummary.client_readable_summary);
 
   lines.push("Lokkotha Summary:");
   lines.push(lokkothaSummary.text);
+
+  lines.push("Forensic Verdict:");
+  lines.push(forensicVerdictBlock.plain_verdict);
 
   lines.push("Final Practical Verdict:");
   lines.push(verdict.practical_note);
