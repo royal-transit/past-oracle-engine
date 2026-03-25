@@ -6,6 +6,7 @@ export default function handler(req, res) {
     const rawName = typeof query.name === "string" ? query.name.trim() : "";
     const rawDob = typeof query.dob === "string" ? query.dob.trim() : "";
     const rawQuestion = typeof query.question === "string" ? query.question.trim() : "";
+    const rawFormat = typeof query.format === "string" ? query.format.trim().toLowerCase() : "json";
 
     const hasName = rawName.length > 0;
     const hasDob = rawDob.length > 0;
@@ -157,11 +158,12 @@ export default function handler(req, res) {
       verdict
     });
 
-    const response = {
+    const fullResponse = {
       endpoint_called: "past-oracle.js",
-      engine_status: "PAST_FORENSIC_ENGINE_PHASE_5",
+      engine_status: "PAST_FORENSIC_ENGINE_PHASE_6",
       system_status: "ACTIVE",
       generated_at_utc: now.toISOString(),
+      output_format: normalizeFormat(rawFormat),
 
       input_packet: {
         name: rawName || null,
@@ -200,60 +202,89 @@ export default function handler(req, res) {
       },
 
       memory_anchor_detection: memoryAnchorScan,
-
       name_vibration_fallback: nameVibrationBlock,
-
       question_routing: questionRouting,
-
       event_density_logic: eventDensityLogic,
-
       event_signal_map: eventSignalMap,
-
       year_band_narrowing: yearBandNarrowing,
-
       anchor_convergence: anchorConvergence,
-
       timeline_truth_extraction: timelineTruthExtraction,
-
       contradiction_filter: contradictionFilter,
-
       multi_event_detection: multiEventDetection,
-
       forensic_confidence: forensicConfidence,
-
       domain_readiness: domainReadiness,
-
       forensic_summary: forensicSummary,
-
       lokkotha_summary: lokkothaSummary,
-
       forensic_verdict_block: forensicVerdictBlock,
 
       premium_past_forensic_output: {
-        current_stage: "QUESTION_LOCK_AND_EVENT_VERDICT_PHASE",
-        next_stage: "FINAL_GPT_INTEGRATION_READY",
+        current_stage: "FINAL_GPT_INTEGRATION_READY",
+        next_stage: "ACTION_BINDING_AND_PROJECT_USE",
         notes: [
-          "Question lock precision is now active",
-          "Contradiction filter is now active",
-          "Single-vs-multiple event detection is now active",
-          "Paste block now carries stronger verdict language"
+          "Compact output mode is now available",
+          "Project-only output mode is now available",
+          "Default JSON output remains available",
+          "Backend is now GPT integration ready"
         ]
       },
 
       project_paste_block: projectPasteBlock,
-
       verdict
     };
 
-    return res.status(200).json(response);
+    const format = normalizeFormat(rawFormat);
+
+    if (format === "project") {
+      return res.status(200).json({
+        endpoint_called: "past-oracle.js",
+        engine_status: "PAST_FORENSIC_ENGINE_PHASE_6",
+        output_format: "project",
+        project_paste_block: projectPasteBlock
+      });
+    }
+
+    if (format === "compact") {
+      return res.status(200).json({
+        endpoint_called: "past-oracle.js",
+        engine_status: "PAST_FORENSIC_ENGINE_PHASE_6",
+        output_format: "compact",
+        input_packet: {
+          name: rawName || null,
+          dob: dobValidation.normalized || rawDob || null,
+          question: rawQuestion || null
+        },
+        mode: mode,
+        confidence_band: forensicConfidence.confidence_band,
+        confidence_score: forensicConfidence.confidence_score,
+        dominant_recall_band: eventDensityLogic.dominant_band || null,
+        event_signal_family: eventSignalMap.dominant_signal_family || null,
+        narrowed_window: yearBandNarrowing.narrowed_window_label || null,
+        dominant_truth_zone: timelineTruthExtraction.dominant_truth_zone || null,
+        event_shape: multiEventDetection.event_shape || null,
+        contradiction_status: contradictionFilter.contradiction_found ? "PRESENT" : "CLEAR",
+        readable_summary: forensicSummary.client_readable_summary,
+        lokkotha_summary: lokkothaSummary.text,
+        forensic_verdict: forensicVerdictBlock.plain_verdict,
+        practical_verdict: verdict.practical_note,
+        project_paste_block: projectPasteBlock
+      });
+    }
+
+    return res.status(200).json(fullResponse);
   } catch (error) {
     return res.status(500).json({
       endpoint_called: "past-oracle.js",
-      engine_status: "PAST_FORENSIC_ENGINE_PHASE_5",
+      engine_status: "PAST_FORENSIC_ENGINE_PHASE_6",
       system_status: "ERROR",
       error_message: error instanceof Error ? error.message : "Unknown error"
     });
   }
+}
+
+function normalizeFormat(format) {
+  if (format === "project") return "project";
+  if (format === "compact") return "compact";
+  return "json";
 }
 
 function validateDob(dob) {
