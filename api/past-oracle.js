@@ -26,13 +26,64 @@ export default function handler(req, res) {
     const ageContext = dobReady ? buildAgeContext(dobValidation.normalized, now) : null;
     const reverseScanBands = dobReady ? buildReverseScanBands(ageContext) : [];
     const memoryAnchorScan = buildMemoryAnchorScan(mode, dobReady, hasName, ageContext);
-    const forensicConfidence = buildForensicConfidence(mode, dobReady, hasName, hasQuestion);
     const nameVibrationBlock = buildNameVibrationBlock(rawName, hasName, dobReady);
+    const forensicConfidence = buildForensicConfidence(mode, dobReady, hasName, hasQuestion);
     const domainReadiness = buildDomainReadiness(mode, dobReady, hasName);
+    const questionRouting = buildQuestionRouting(rawQuestion, hasQuestion);
+    const eventDensityLogic = buildEventDensityLogic({
+      mode,
+      dobReady,
+      reverseScanBands,
+      hasQuestion,
+      questionRouting
+    });
+    const timelineTruthExtraction = buildTimelineTruthExtraction({
+      dobReady,
+      hasName,
+      mode,
+      questionRouting,
+      eventDensityLogic
+    });
+    const forensicSummary = buildForensicSummary({
+      mode,
+      dobReady,
+      hasName,
+      hasQuestion,
+      ageContext,
+      questionRouting,
+      eventDensityLogic,
+      timelineTruthExtraction,
+      forensicConfidence
+    });
+    const lokkothaSummary = buildLokkothaSummary({
+      mode,
+      dobReady,
+      hasName,
+      questionRouting,
+      timelineTruthExtraction
+    });
+    const verdict = buildVerdict({
+      mode,
+      dobValid: dobValidation.valid,
+      hasName,
+      hasQuestion,
+      dobReady
+    });
+    const projectPasteBlock = buildProjectPasteBlock({
+      mode,
+      rawName,
+      normalizedDob: dobValidation.normalized,
+      forensicConfidence,
+      eventDensityLogic,
+      timelineTruthExtraction,
+      forensicSummary,
+      lokkothaSummary,
+      verdict
+    });
 
     const response = {
       endpoint_called: "past-oracle.js",
-      engine_status: "PAST_FORENSIC_ENGINE_PHASE_2",
+      engine_status: "PAST_FORENSIC_ENGINE_PHASE_3",
       system_status: "ACTIVE",
       generated_at_utc: now.toISOString(),
 
@@ -80,30 +131,37 @@ export default function handler(req, res) {
 
       domain_readiness: domainReadiness,
 
+      question_routing: questionRouting,
+
+      event_density_logic: eventDensityLogic,
+
+      timeline_truth_extraction: timelineTruthExtraction,
+
+      forensic_summary: forensicSummary,
+
+      lokkotha_summary: lokkothaSummary,
+
       premium_past_forensic_output: {
-        current_stage: "STRUCTURED_ENGINE_SCAFFOLD",
-        next_stage: "EVENT_PATTERN_AND_DENSITY_LOGIC",
+        current_stage: "PROJECT_READY_FORENSIC_OUTPUT",
+        next_stage: "DEEPER_EVENT_MAPPING_AND_PATTERN_MEMORY_LOCK",
         notes: [
-          "Timeline bands are now generated when valid DOB is supplied",
-          "Name-only mode remains available as fallback but carries lower precision",
-          "Question-aware forensic routing is ready for deeper expansion"
+          "Readable summary is now active",
+          "Project paste block is now generated",
+          "Question-aware forensic routing is active",
+          "Name-only fallback remains lower precision than DOB-anchored scan"
         ]
       },
 
-      verdict: buildVerdict({
-        mode,
-        dobValid: dobValidation.valid,
-        hasName,
-        hasQuestion,
-        dobReady
-      })
+      project_paste_block: projectPasteBlock,
+
+      verdict
     };
 
     return res.status(200).json(response);
   } catch (error) {
     return res.status(500).json({
       endpoint_called: "past-oracle.js",
-      engine_status: "PAST_FORENSIC_ENGINE_PHASE_2",
+      engine_status: "PAST_FORENSIC_ENGINE_PHASE_3",
       system_status: "ERROR",
       error_message: error instanceof Error ? error.message : "Unknown error"
     });
@@ -368,6 +426,239 @@ function buildDomainReadiness(mode, dobReady, hasName) {
     root_cause_forensics: dobReady ? "DOB_READY" : hasName ? "NAME_LIMITED" : "NOT_READY",
     mode_summary: mode
   };
+}
+
+function buildQuestionRouting(question, hasQuestion) {
+  if (!hasQuestion) {
+    return {
+      status: "INACTIVE",
+      target_domain: "GENERAL_FORENSIC",
+      intent_type: "NONE",
+      route_reason: "No question supplied"
+    };
+  }
+
+  const q = question.toLowerCase();
+
+  let targetDomain = "GENERAL_FORENSIC";
+  let intentType = "OPEN_FORENSIC";
+
+  if (containsAny(q, ["love", "relationship", "marriage", "wife", "husband", "breakup", "partner"])) {
+    targetDomain = "RELATIONSHIP";
+    intentType = "RELATIONSHIP_FORENSIC";
+  } else if (containsAny(q, ["money", "income", "business", "job", "work", "debt", "payment"])) {
+    targetDomain = "MONEY_WORK";
+    intentType = "MONEY_FORENSIC";
+  } else if (containsAny(q, ["family", "home", "mother", "father", "brother", "sister", "child"])) {
+    targetDomain = "FAMILY";
+    intentType = "FAMILY_FORENSIC";
+  } else if (containsAny(q, ["case", "legal", "paperwork", "authority", "court", "visa", "document"])) {
+    targetDomain = "AUTHORITY_PAPERWORK";
+    intentType = "AUTHORITY_FORENSIC";
+  }
+
+  return {
+    status: "ACTIVE",
+    target_domain: targetDomain,
+    intent_type: intentType,
+    route_reason: "Question language was mapped into a forensic domain"
+  };
+}
+
+function containsAny(text, words) {
+  return words.some((word) => text.includes(word));
+}
+
+function buildEventDensityLogic({ mode, dobReady, reverseScanBands, hasQuestion, questionRouting }) {
+  if (!dobReady) {
+    return {
+      status: "LIMITED",
+      dominant_band: "NAME_ONLY_MODE",
+      secondary_band: null,
+      event_density_grade: "LOW_PRECISION",
+      recent_recall_strength: "MEDIUM_IF_USER_RECALLS",
+      deep_recall_strength: "LOW",
+      targeting_boost: hasQuestion ? "QUESTION_GUIDED_ONLY" : "NONE"
+    };
+  }
+
+  const dominantBand = reverseScanBands[0]?.label || "RECENT_0_TO_3_YEARS";
+  const secondaryBand = reverseScanBands[1]?.label || "FORMATIVE_3_TO_7_YEARS";
+
+  return {
+    status: "ACTIVE",
+    dominant_band: dominantBand,
+    secondary_band: secondaryBand,
+    event_density_grade: hasQuestion ? "TARGETED_HIGH" : "GENERAL_HIGH",
+    recent_recall_strength: "VERY_HIGH",
+    deep_recall_strength: "MEDIUM",
+    targeting_boost: hasQuestion ? questionRouting.target_domain : "GENERAL"
+  };
+}
+
+function buildTimelineTruthExtraction({ dobReady, hasName, mode, questionRouting, eventDensityLogic }) {
+  if (!dobReady && !hasName) {
+    return {
+      status: "LOCKED",
+      dominant_truth_zone: null,
+      secondary_truth_zone: null,
+      pattern_statement: "No forensic extraction possible without basic intake"
+    };
+  }
+
+  if (!dobReady && hasName) {
+    return {
+      status: "LIMITED",
+      dominant_truth_zone: "IDENTITY_AND_REPEAT_PATTERN",
+      secondary_truth_zone: "SOCIAL_PERCEPTION_AND_EMOTIONAL_REPEAT",
+      pattern_statement:
+        "Name fallback suggests identity-linked repeating emotional or social memory patterns, but exact timeline truth remains limited without DOB"
+    };
+  }
+
+  const map = {
+    RELATIONSHIP: {
+      dominant: "RELATIONSHIP_TENSION_OR_SHIFT",
+      secondary: "EMOTIONAL_BOND_CHANGE"
+    },
+    MONEY_WORK: {
+      dominant: "MONEY_PRESSURE_OR_WORK_SHIFT",
+      secondary: "NEGOTIATION_OR_PAYMENT_BLOCK"
+    },
+    FAMILY: {
+      dominant: "FAMILY_BURDEN_OR_HOME_SHIFT",
+      secondary: "EMOTIONAL_RESPONSIBILITY_FIELD"
+    },
+    AUTHORITY_PAPERWORK: {
+      dominant: "AUTHORITY_PRESSURE_OR_DOCUMENT_STRESS",
+      secondary: "DELAY_OR_COMPLIANCE_LOAD"
+    },
+    GENERAL_FORENSIC: {
+      dominant: "RECENT_LIFE_PRESSURE_CLUSTER",
+      secondary: "TRANSITIONAL_MEMORY_ANCHOR"
+    }
+  };
+
+  const selected = map[questionRouting.target_domain] || map.GENERAL_FORENSIC;
+
+  return {
+    status: "ACTIVE",
+    dominant_truth_zone: selected.dominant,
+    secondary_truth_zone: selected.secondary,
+    pattern_statement:
+      mode === "HYBRID_MODE"
+        ? `DOB + name indicate that the strongest recoverable truth zone is ${selected.dominant}, with secondary support from ${selected.secondary}`
+        : `DOB-anchored scan suggests the strongest recoverable truth zone is ${selected.dominant}, with secondary support from ${selected.secondary}`,
+    density_alignment: eventDensityLogic.dominant_band
+  };
+}
+
+function buildForensicSummary({
+  mode,
+  dobReady,
+  hasName,
+  hasQuestion,
+  ageContext,
+  questionRouting,
+  eventDensityLogic,
+  timelineTruthExtraction,
+  forensicConfidence
+}) {
+  let readableSummary = "";
+
+  if (mode === "NO_INPUT") {
+    readableSummary =
+      "No forensic scan can start yet because the system has not received a usable name or date of birth.";
+  } else if (!dobReady && hasName) {
+    readableSummary =
+      "A name-only fallback scan is active. The system can detect identity-linked repeating patterns and emotional/social memory clusters, but full timeline accuracy remains limited until a valid DOB is supplied.";
+  } else {
+    readableSummary =
+      `A DOB-anchored reverse scan is active. The strongest recall pressure is concentrated in ${eventDensityLogic.dominant_band}, with secondary support from ${eventDensityLogic.secondary_band}. ` +
+      `The dominant past truth zone is ${timelineTruthExtraction.dominant_truth_zone}, and the scan is currently routed through ${questionRouting.target_domain}.`;
+  }
+
+  return {
+    status: "ACTIVE",
+    readability_grade: "HIGH",
+    client_readable_summary: readableSummary,
+    confidence_band: forensicConfidence.confidence_band,
+    lifecycle_stage: ageContext ? ageContext.lifecycle_stage : null,
+    question_guided: hasQuestion
+  };
+}
+
+function buildLokkothaSummary({ mode, dobReady, hasName, questionRouting, timelineTruthExtraction }) {
+  if (mode === "NO_INPUT") {
+    return {
+      status: "ACTIVE",
+      style: "LOKKOTHA",
+      text: "নামও নেই, জন্মের তারিখও নেই—ধোঁয়ার ভিতর ছায়া ধরা যায়, মানুষ ধরা যায় না।"
+    };
+  }
+
+  if (!dobReady && hasName) {
+    return {
+      status: "ACTIVE",
+      style: "LOKKOTHA",
+      text: "নামের ঢেউ আছে, কিন্তু ঘাটের দাগ পুরো খোলা নয়; নাম পথ দেখায়, জন্মতারিখ দরজা খুলে।"
+    };
+  }
+
+  const map = {
+    RELATIONSHIP: "মনের গিঁট যেখানে পড়েছিল, কথার টান সেখানেই আগে ছিঁড়েছিল।",
+    MONEY_WORK: "রোজগারের পথ শুকায় একদিনে না; আগে দর কষাকষি থামে, পরে টাকার হাঁড়ি ঠান্ডা হয়।",
+    FAMILY: "ঘরের ভার আগে বুকে নামে, তার শব্দ পরে সংসারের দেওয়ালে শোনা যায়।",
+    AUTHORITY_PAPERWORK: "কাগজের কাঁটা ছোট হয়, কিন্তু হাতে বিঁধলে পথ বড় থামায়।",
+    GENERAL_FORENSIC: "যে ঢেউ আজও মনে লাগে, তার পাথর আগেই জলে পড়েছিল।"
+  };
+
+  return {
+    status: "ACTIVE",
+    style: "LOKKOTHA",
+    text: map[questionRouting.target_domain] || map.GENERAL_FORENSIC,
+    dominant_truth_zone: timelineTruthExtraction.dominant_truth_zone
+  };
+}
+
+function buildProjectPasteBlock({
+  mode,
+  rawName,
+  normalizedDob,
+  forensicConfidence,
+  eventDensityLogic,
+  timelineTruthExtraction,
+  forensicSummary,
+  lokkothaSummary,
+  verdict
+}) {
+  const lines = [];
+
+  lines.push("PAST FORENSIC INTAKE");
+  lines.push(`Mode: ${mode}`);
+  lines.push(`Name: ${rawName || "N/A"}`);
+  lines.push(`DOB: ${normalizedDob || "N/A"}`);
+  lines.push(`Confidence Band: ${forensicConfidence.confidence_band}`);
+  lines.push(`Confidence Score: ${forensicConfidence.confidence_score}`);
+
+  lines.push(`Dominant Recall Band: ${eventDensityLogic.dominant_band || "N/A"}`);
+  lines.push(`Secondary Recall Band: ${eventDensityLogic.secondary_band || "N/A"}`);
+
+  lines.push(`Dominant Truth Zone: ${timelineTruthExtraction.dominant_truth_zone || "N/A"}`);
+  lines.push(`Secondary Truth Zone: ${timelineTruthExtraction.secondary_truth_zone || "N/A"}`);
+
+  lines.push("Readable Summary:");
+  lines.push(forensicSummary.client_readable_summary);
+
+  lines.push("Lokkotha Summary:");
+  lines.push(lokkothaSummary.text);
+
+  lines.push("Final Practical Verdict:");
+  lines.push(verdict.practical_note);
+
+  lines.push("PAST FORENSIC BLOCK END");
+
+  return lines.join("\n");
 }
 
 function buildVerdict({ mode, dobValid, hasName, hasQuestion, dobReady }) {
