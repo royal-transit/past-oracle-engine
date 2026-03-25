@@ -30,6 +30,7 @@ export default function handler(req, res) {
     const forensicConfidence = buildForensicConfidence(mode, dobReady, hasName, hasQuestion);
     const domainReadiness = buildDomainReadiness(mode, dobReady, hasName);
     const questionRouting = buildQuestionRouting(rawQuestion, hasQuestion);
+
     const eventDensityLogic = buildEventDensityLogic({
       mode,
       dobReady,
@@ -37,13 +38,38 @@ export default function handler(req, res) {
       hasQuestion,
       questionRouting
     });
+
+    const eventSignalMap = buildEventSignalMap({
+      mode,
+      dobReady,
+      hasName,
+      questionRouting
+    });
+
+    const yearBandNarrowing = buildYearBandNarrowing({
+      dobReady,
+      ageContext,
+      eventDensityLogic
+    });
+
+    const anchorConvergence = buildAnchorConvergence({
+      dobReady,
+      hasName,
+      questionRouting,
+      eventSignalMap,
+      yearBandNarrowing
+    });
+
     const timelineTruthExtraction = buildTimelineTruthExtraction({
       dobReady,
       hasName,
       mode,
       questionRouting,
-      eventDensityLogic
+      eventDensityLogic,
+      eventSignalMap,
+      anchorConvergence
     });
+
     const forensicSummary = buildForensicSummary({
       mode,
       dobReady,
@@ -52,16 +78,22 @@ export default function handler(req, res) {
       ageContext,
       questionRouting,
       eventDensityLogic,
+      eventSignalMap,
+      yearBandNarrowing,
       timelineTruthExtraction,
+      anchorConvergence,
       forensicConfidence
     });
+
     const lokkothaSummary = buildLokkothaSummary({
       mode,
       dobReady,
       hasName,
       questionRouting,
-      timelineTruthExtraction
+      timelineTruthExtraction,
+      eventSignalMap
     });
+
     const verdict = buildVerdict({
       mode,
       dobValid: dobValidation.valid,
@@ -69,12 +101,15 @@ export default function handler(req, res) {
       hasQuestion,
       dobReady
     });
+
     const projectPasteBlock = buildProjectPasteBlock({
       mode,
       rawName,
       normalizedDob: dobValidation.normalized,
       forensicConfidence,
       eventDensityLogic,
+      eventSignalMap,
+      yearBandNarrowing,
       timelineTruthExtraction,
       forensicSummary,
       lokkothaSummary,
@@ -83,7 +118,7 @@ export default function handler(req, res) {
 
     const response = {
       endpoint_called: "past-oracle.js",
-      engine_status: "PAST_FORENSIC_ENGINE_PHASE_3",
+      engine_status: "PAST_FORENSIC_ENGINE_PHASE_4",
       system_status: "ACTIVE",
       generated_at_utc: now.toISOString(),
 
@@ -135,6 +170,12 @@ export default function handler(req, res) {
 
       event_density_logic: eventDensityLogic,
 
+      event_signal_map: eventSignalMap,
+
+      year_band_narrowing: yearBandNarrowing,
+
+      anchor_convergence: anchorConvergence,
+
       timeline_truth_extraction: timelineTruthExtraction,
 
       forensic_summary: forensicSummary,
@@ -142,13 +183,13 @@ export default function handler(req, res) {
       lokkotha_summary: lokkothaSummary,
 
       premium_past_forensic_output: {
-        current_stage: "PROJECT_READY_FORENSIC_OUTPUT",
-        next_stage: "DEEPER_EVENT_MAPPING_AND_PATTERN_MEMORY_LOCK",
+        current_stage: "EVENT_SIGNAL_AND_YEAR_BAND_PHASE",
+        next_stage: "QUESTION_LOCK_AND_PASTE_OPTIMIZATION",
         notes: [
-          "Readable summary is now active",
-          "Project paste block is now generated",
-          "Question-aware forensic routing is active",
-          "Name-only fallback remains lower precision than DOB-anchored scan"
+          "Event signals are now mapped by domain",
+          "Approximate year bands are now narrowed when DOB is supplied",
+          "Anchor convergence layer is active",
+          "Readable and lokkotha summaries are stronger and more domain-aware"
         ]
       },
 
@@ -161,7 +202,7 @@ export default function handler(req, res) {
   } catch (error) {
     return res.status(500).json({
       endpoint_called: "past-oracle.js",
-      engine_status: "PAST_FORENSIC_ENGINE_PHASE_3",
+      engine_status: "PAST_FORENSIC_ENGINE_PHASE_4",
       system_status: "ERROR",
       error_message: error instanceof Error ? error.message : "Unknown error"
     });
@@ -496,7 +537,132 @@ function buildEventDensityLogic({ mode, dobReady, reverseScanBands, hasQuestion,
   };
 }
 
-function buildTimelineTruthExtraction({ dobReady, hasName, mode, questionRouting, eventDensityLogic }) {
+function buildEventSignalMap({ mode, dobReady, hasName, questionRouting }) {
+  if (!dobReady && !hasName) {
+    return {
+      status: "LOCKED",
+      dominant_signal_family: null,
+      signal_markers: []
+    };
+  }
+
+  if (!dobReady && hasName) {
+    return {
+      status: "LIMITED",
+      dominant_signal_family: "IDENTITY_REPEAT",
+      signal_markers: [
+        "repeating emotional response",
+        "social naming resonance",
+        "identity-linked memory echo"
+      ]
+    };
+  }
+
+  const map = {
+    RELATIONSHIP: {
+      family: "BOND_SHIFT",
+      markers: ["distance", "miscommunication", "break", "emotional reversal", "attachment strain"]
+    },
+    MONEY_WORK: {
+      family: "MONEY_PRESSURE",
+      markers: ["income fluctuation", "deal slowdown", "payment delay", "work pressure", "financial blockage"]
+    },
+    FAMILY: {
+      family: "HOME_BURDEN",
+      markers: ["family pressure", "household strain", "responsibility load", "home shift", "emotional duty"]
+    },
+    AUTHORITY_PAPERWORK: {
+      family: "AUTHORITY_STRESS",
+      markers: ["document burden", "legal friction", "compliance stress", "paperwork delay", "official pressure"]
+    },
+    GENERAL_FORENSIC: {
+      family: "RECENT_PRESSURE_CLUSTER",
+      markers: ["stress peak", "transition point", "burden cycle", "communication issue", "directional shift"]
+    }
+  };
+
+  const selected = map[questionRouting.target_domain] || map.GENERAL_FORENSIC;
+
+  return {
+    status: "ACTIVE",
+    dominant_signal_family: selected.family,
+    signal_markers: selected.markers
+  };
+}
+
+function buildYearBandNarrowing({ dobReady, ageContext, eventDensityLogic }) {
+  if (!dobReady || !ageContext) {
+    return {
+      status: "LIMITED",
+      narrowed_window_label: "UNAVAILABLE_WITHOUT_DOB",
+      approximate_years_back: null,
+      note: "Year narrowing needs valid DOB"
+    };
+  }
+
+  const age = ageContext.approximate_age_years;
+  let yearsBack = [0, 3];
+
+  if (eventDensityLogic.dominant_band === "FORMATIVE_3_TO_7_YEARS") {
+    yearsBack = [3, 7];
+  } else if (eventDensityLogic.dominant_band === "MID_MEMORY_7_TO_12_YEARS") {
+    yearsBack = [7, 12];
+  } else if (eventDensityLogic.dominant_band === "DEEP_MEMORY_12_TO_20_YEARS") {
+    yearsBack = [12, 20];
+  }
+
+  return {
+    status: "ACTIVE",
+    narrowed_window_label: eventDensityLogic.dominant_band,
+    approximate_years_back: {
+      from: yearsBack[0],
+      to: yearsBack[1]
+    },
+    approximate_age_window: {
+      start_age: Math.max(age - yearsBack[1], 0),
+      end_age: Math.max(age - yearsBack[0], 0)
+    },
+    note: "This is a narrowed forensic recall band, not an exact event date"
+  };
+}
+
+function buildAnchorConvergence({ dobReady, hasName, questionRouting, eventSignalMap, yearBandNarrowing }) {
+  if (!dobReady && !hasName) {
+    return {
+      status: "LOCKED",
+      convergence_grade: "NONE",
+      anchor_count: 0
+    };
+  }
+
+  let anchorCount = 1;
+  if (hasName) anchorCount += 1;
+  if (dobReady) anchorCount += 2;
+  if (questionRouting.status === "ACTIVE") anchorCount += 1;
+  if (eventSignalMap.status === "ACTIVE") anchorCount += 1;
+  if (yearBandNarrowing.status === "ACTIVE") anchorCount += 1;
+
+  let convergenceGrade = "LOW";
+  if (anchorCount >= 5) convergenceGrade = "HIGH";
+  else if (anchorCount >= 3) convergenceGrade = "MEDIUM";
+
+  return {
+    status: "ACTIVE",
+    convergence_grade: convergenceGrade,
+    anchor_count: anchorCount,
+    note: "More converging anchors usually means stronger forensic readability"
+  };
+}
+
+function buildTimelineTruthExtraction({
+  dobReady,
+  hasName,
+  mode,
+  questionRouting,
+  eventDensityLogic,
+  eventSignalMap,
+  anchorConvergence
+}) {
   if (!dobReady && !hasName) {
     return {
       status: "LOCKED",
@@ -512,7 +678,8 @@ function buildTimelineTruthExtraction({ dobReady, hasName, mode, questionRouting
       dominant_truth_zone: "IDENTITY_AND_REPEAT_PATTERN",
       secondary_truth_zone: "SOCIAL_PERCEPTION_AND_EMOTIONAL_REPEAT",
       pattern_statement:
-        "Name fallback suggests identity-linked repeating emotional or social memory patterns, but exact timeline truth remains limited without DOB"
+        "Name fallback suggests identity-linked repeating emotional or social memory patterns, but exact timeline truth remains limited without DOB",
+      convergence_grade: anchorConvergence.convergence_grade
     };
   }
 
@@ -545,11 +712,13 @@ function buildTimelineTruthExtraction({ dobReady, hasName, mode, questionRouting
     status: "ACTIVE",
     dominant_truth_zone: selected.dominant,
     secondary_truth_zone: selected.secondary,
+    dominant_signal_family: eventSignalMap.dominant_signal_family,
     pattern_statement:
       mode === "HYBRID_MODE"
-        ? `DOB + name indicate that the strongest recoverable truth zone is ${selected.dominant}, with secondary support from ${selected.secondary}`
-        : `DOB-anchored scan suggests the strongest recoverable truth zone is ${selected.dominant}, with secondary support from ${selected.secondary}`,
-    density_alignment: eventDensityLogic.dominant_band
+        ? `DOB + name indicate that the strongest recoverable truth zone is ${selected.dominant}, supported by ${selected.secondary} and signal family ${eventSignalMap.dominant_signal_family}`
+        : `DOB-anchored scan suggests the strongest recoverable truth zone is ${selected.dominant}, supported by ${selected.secondary} and signal family ${eventSignalMap.dominant_signal_family}`,
+    density_alignment: eventDensityLogic.dominant_band,
+    convergence_grade: anchorConvergence.convergence_grade
   };
 }
 
@@ -561,7 +730,10 @@ function buildForensicSummary({
   ageContext,
   questionRouting,
   eventDensityLogic,
+  eventSignalMap,
+  yearBandNarrowing,
   timelineTruthExtraction,
+  anchorConvergence,
   forensicConfidence
 }) {
   let readableSummary = "";
@@ -575,7 +747,8 @@ function buildForensicSummary({
   } else {
     readableSummary =
       `A DOB-anchored reverse scan is active. The strongest recall pressure is concentrated in ${eventDensityLogic.dominant_band}, with secondary support from ${eventDensityLogic.secondary_band}. ` +
-      `The dominant past truth zone is ${timelineTruthExtraction.dominant_truth_zone}, and the scan is currently routed through ${questionRouting.target_domain}.`;
+      `The dominant signal family is ${eventSignalMap.dominant_signal_family}, and the clearest truth zone is ${timelineTruthExtraction.dominant_truth_zone}. ` +
+      `Approximate narrowing currently points to ${yearBandNarrowing.narrowed_window_label}.`;
   }
 
   return {
@@ -584,11 +757,13 @@ function buildForensicSummary({
     client_readable_summary: readableSummary,
     confidence_band: forensicConfidence.confidence_band,
     lifecycle_stage: ageContext ? ageContext.lifecycle_stage : null,
-    question_guided: hasQuestion
+    question_guided: hasQuestion,
+    anchor_convergence: anchorConvergence.convergence_grade,
+    routed_domain: questionRouting.target_domain
   };
 }
 
-function buildLokkothaSummary({ mode, dobReady, hasName, questionRouting, timelineTruthExtraction }) {
+function buildLokkothaSummary({ mode, dobReady, hasName, questionRouting, timelineTruthExtraction, eventSignalMap }) {
   if (mode === "NO_INPUT") {
     return {
       status: "ACTIVE",
@@ -606,10 +781,10 @@ function buildLokkothaSummary({ mode, dobReady, hasName, questionRouting, timeli
   }
 
   const map = {
-    RELATIONSHIP: "মনের গিঁট যেখানে পড়েছিল, কথার টান সেখানেই আগে ছিঁড়েছিল।",
-    MONEY_WORK: "রোজগারের পথ শুকায় একদিনে না; আগে দর কষাকষি থামে, পরে টাকার হাঁড়ি ঠান্ডা হয়।",
-    FAMILY: "ঘরের ভার আগে বুকে নামে, তার শব্দ পরে সংসারের দেওয়ালে শোনা যায়।",
-    AUTHORITY_PAPERWORK: "কাগজের কাঁটা ছোট হয়, কিন্তু হাতে বিঁধলে পথ বড় থামায়।",
+    RELATIONSHIP: "মনের বাঁধন যেখানে আলগা হয়েছিল, কথার সুঁতো সেখানেই আগে কেঁপেছিল।",
+    MONEY_WORK: "হাঁড়ির আগুন নিভে না এক ঝড়ে; আগে দরজায় থমকায় দর কষাকষি, পরে টাকার হাঁড়ি ঠান্ডা হয়।",
+    FAMILY: "ঘরের ভার চুপে নামে, কিন্তু তার শব্দ সংসারের চালেই আগে বাজে।",
+    AUTHORITY_PAPERWORK: "কাগজের কাঁটা ছোট, কিন্তু গায়ে বিঁধলে পথের গতি অনেকখানি থামে।",
     GENERAL_FORENSIC: "যে ঢেউ আজও মনে লাগে, তার পাথর আগেই জলে পড়েছিল।"
   };
 
@@ -617,7 +792,8 @@ function buildLokkothaSummary({ mode, dobReady, hasName, questionRouting, timeli
     status: "ACTIVE",
     style: "LOKKOTHA",
     text: map[questionRouting.target_domain] || map.GENERAL_FORENSIC,
-    dominant_truth_zone: timelineTruthExtraction.dominant_truth_zone
+    dominant_truth_zone: timelineTruthExtraction.dominant_truth_zone,
+    signal_family: eventSignalMap.dominant_signal_family
   };
 }
 
@@ -627,6 +803,8 @@ function buildProjectPasteBlock({
   normalizedDob,
   forensicConfidence,
   eventDensityLogic,
+  eventSignalMap,
+  yearBandNarrowing,
   timelineTruthExtraction,
   forensicSummary,
   lokkothaSummary,
@@ -643,6 +821,10 @@ function buildProjectPasteBlock({
 
   lines.push(`Dominant Recall Band: ${eventDensityLogic.dominant_band || "N/A"}`);
   lines.push(`Secondary Recall Band: ${eventDensityLogic.secondary_band || "N/A"}`);
+  lines.push(`Event Signal Family: ${eventSignalMap.dominant_signal_family || "N/A"}`);
+  lines.push(
+    `Approximate Narrowed Window: ${yearBandNarrowing.narrowed_window_label || "N/A"}`
+  );
 
   lines.push(`Dominant Truth Zone: ${timelineTruthExtraction.dominant_truth_zone || "N/A"}`);
   lines.push(`Secondary Truth Zone: ${timelineTruthExtraction.secondary_truth_zone || "N/A"}`);
