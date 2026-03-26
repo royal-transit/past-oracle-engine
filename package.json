@@ -1,0 +1,8 @@
+{
+  "name": "past-oracle-engine",
+  "version": "1.0.0",
+  "type": "module",
+  "dependencies": {
+    "swisseph": "^0.5.17"
+  }
+}
