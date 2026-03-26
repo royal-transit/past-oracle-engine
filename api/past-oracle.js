@@ -283,11 +283,13 @@ export default async function handler(req, res) {
 
       evidence_normalized: astro.evidence_normalized,
 
-      top_ranked_domains: stage2.ranked_domains
+      top_ranked_domains: evidenceLayer.ranked_domains
         .slice(0, 12)
         .map(minifyDomain),
 
-      domain_results: stage2.ranked_domains,
+      domain_results: evidenceLayer.ranked_domains,
+      exact_domain_summary: evidenceLayer.exact_domain_summary,
+
       event_summary: evidenceLayer.event_summary,
       master_timeline,
       current_carryover: stage2.carryover,
@@ -312,7 +314,7 @@ export default async function handler(req, res) {
         summary: {
           primary_domain: stage2.question_profile.primary_domain,
           total_events: evidenceLayer.event_summary.total_estimated_events,
-          top_domains: stage2.ranked_domains
+          top_domains: evidenceLayer.ranked_domains
             .slice(0, 5)
             .map((d) => d.domain_label),
           marriage_count: evidenceLayer.event_summary.marriage_count,
@@ -322,6 +324,7 @@ export default async function handler(req, res) {
           settlement_year: evidenceLayer.event_summary.settlement_year,
           current_carryover: stage2.carryover.present_carryover_detected
         },
+        exact_domain_summary: evidenceLayer.exact_domain_summary,
         verdict: evidenceLayer.forensic_verdict,
         lokkotha_summary: evidenceLayer.lokkotha_summary
       });
