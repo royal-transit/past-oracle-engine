@@ -21,24 +21,11 @@ const normalizeFormat = (v) => {
   return "json";
 };
 
+const round2 = (n) => Math.round((Number(n || 0) + Number.EPSILON) * 100) / 100;
 const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
-const round2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
-const norm360 = (x) => {
-  let v = Number(x || 0) % 360;
-  if (v < 0) v += 360;
-  return v;
-};
 
-function signToIndex(sign) {
-  const signs = [
-    "Aries","Taurus","Gemini","Cancer","Leo","Virgo",
-    "Libra","Scorpio","Sagittarius","Capricorn","Aquarius","Pisces"
-  ];
-  return signs.indexOf(sign);
-}
-
-function houseDistance(fromHouse, toHouse) {
-  return ((toHouse - fromHouse + 12) % 12) + 1;
+function hasAny(text, arr) {
+  return arr.some((x) => text.includes(x));
 }
 
 function parseYear(text) {
@@ -53,7 +40,7 @@ function extractAllYears(text) {
 function extractCount(text) {
   const map = {
     one: 1, two: 2, three: 3, four: 4, five: 5,
-    ek: 1, ekta: 1, onee: 1,
+    ek: 1, ekta: 1,
     dui: 2, duita: 2,
     tin: 3, tinta: 3,
     char: 4, charta: 4,
@@ -68,8 +55,24 @@ function extractCount(text) {
   return m ? Number(m[1]) : null;
 }
 
-function hasAny(text, arr) {
-  return arr.some((x) => text.includes(x));
+function safeBirthYear(birthIso) {
+  if (!birthIso) return null;
+  const d = new Date(birthIso);
+  return Number.isNaN(d.getTime()) ? null : d.getUTCFullYear();
+}
+
+function minifyDomain(d) {
+  return {
+    domain_key: d.domain_key,
+    domain_label: d.domain_label,
+    rank_score: d.rank_score,
+    normalized_score: d.normalized_score,
+    density: d.density,
+    residual_impact: d.residual_impact,
+    major_event_count: d.major_event_count,
+    broken_event_count: d.broken_event_count,
+    active_event_count: d.active_event_count
+  };
 }
 
 /* =========================================
@@ -98,7 +101,7 @@ export default async function handler(req, res) {
 
     if (core.system_status !== "OK") {
       return res.status(400).json({
-        engine_status: "PAST_ORACLE_NANO_V1",
+        engine_status: "PAST_ORACLE_UNIVERSAL_V1",
         system_status: "INPUT_ERROR",
         details: core
       });
@@ -108,7 +111,7 @@ export default async function handler(req, res) {
     const evidence = normalizeEvidence(core.evidence_packet);
     const questionProfile = buildQuestionProfile(input.question);
 
-    const domainResults = runFullNanoScanner({
+    const domainResults = runUniversalNanoScanner({
       input,
       core,
       evidence,
@@ -118,6 +121,7 @@ export default async function handler(req, res) {
 
     const linkedExpansion = expandLinkedDomains(questionProfile.primary_domain);
     const rankedDomains = rankDomains(domainResults, linkedExpansion, questionProfile);
+
     const eventSummary = buildEventSummary(rankedDomains);
     const masterTimeline = buildMasterTimeline(rankedDomains, core.birth_context);
     const carryover = buildCarryover(rankedDomains);
@@ -137,9 +141,9 @@ export default async function handler(req, res) {
     });
 
     const payload = {
-      engine_status: "PAST_ORACLE_NANO_V1",
+      engine_status: "PAST_ORACLE_UNIVERSAL_V1",
       system_status: "OK",
-      mode: "FULL_NANO_SCANNER",
+      mode: input.dob && input.tob && input.pob ? "FULL_BIRTH_MODE" : "NAME_MODE",
       input_normalized: core.input_normalized,
       birth_context: core.birth_context,
       current_context: core.current_context,
@@ -160,7 +164,7 @@ export default async function handler(req, res) {
 
     if (input.format === "project") {
       return res.status(200).json({
-        engine_status: "PAST_ORACLE_NANO_V1",
+        engine_status: "PAST_ORACLE_UNIVERSAL_V1",
         output_format: "project",
         project_paste_block: projectPasteBlock
       });
@@ -168,7 +172,7 @@ export default async function handler(req, res) {
 
     if (input.format === "compact") {
       return res.status(200).json({
-        engine_status: "PAST_ORACLE_NANO_V1",
+        engine_status: "PAST_ORACLE_UNIVERSAL_V1",
         output_format: "compact",
         summary: {
           primary_domain: questionProfile.primary_domain,
@@ -186,7 +190,7 @@ export default async function handler(req, res) {
     return res.status(200).json(payload);
   } catch (error) {
     return res.status(500).json({
-      engine_status: "PAST_ORACLE_NANO_V1",
+      engine_status: "PAST_ORACLE_UNIVERSAL_V1",
       system_status: "ERROR",
       error_message: error instanceof Error ? error.message : "Unknown error"
     });
@@ -194,7 +198,7 @@ export default async function handler(req, res) {
 }
 
 /* =========================================
-   QUESTION / FACT PROFILE
+   FACTS / QUESTION
 ========================================= */
 
 function parseFactAnchors(facts, question) {
@@ -240,26 +244,17 @@ function buildQuestionProfile(question) {
 
 function expandLinkedDomains(primary) {
   const map = {
-    MARRIAGE: ["MARRIAGE", "RELATIONSHIP", "CHILDREN", "BREAK", "LEGAL", "FAMILY"],
-    RELATIONSHIP: ["RELATIONSHIP", "MARRIAGE", "BREAK", "CHILDREN", "FAMILY"],
-    CAREER: ["CAREER", "MONEY", "GAIN", "FAILURE", "REPUTATION", "LEGAL"],
-    MONEY: ["MONEY", "CAREER", "GAIN", "LOSS", "DEBT", "LEGAL"],
-    FOREIGN: ["FOREIGN", "PROPERTY", "CAREER", "LOSS", "LEGAL", "REPUTATION"],
-    HEALTH: ["HEALTH", "ACCIDENT", "MENTAL", "RECOVERY", "LOSS"],
-    PROPERTY: ["PROPERTY", "FOREIGN", "MONEY", "FAMILY", "LEGAL"],
-    LEGAL: ["LEGAL", "CAREER", "MONEY", "REPUTATION", "ENEMY"],
+    MARRIAGE: ["MARRIAGE", "RELATIONSHIP", "CHILDREN", "DIVORCE", "LEGAL", "FAMILY"],
+    RELATIONSHIP: ["RELATIONSHIP", "MARRIAGE", "DIVORCE", "CHILDREN", "FAMILY"],
+    CAREER: ["CAREER", "MONEY", "GAIN", "FAILURE", "REPUTATION", "LEGAL", "BUSINESS", "JOB"],
+    MONEY: ["MONEY", "CAREER", "GAIN", "LOSS", "DEBT", "LEGAL", "BUSINESS"],
+    FOREIGN: ["FOREIGN", "PROPERTY", "CAREER", "LOSS", "LEGAL", "VISA", "IMMIGRATION", "SETTLEMENT"],
+    HEALTH: ["HEALTH", "ACCIDENT", "MENTAL", "RECOVERY", "DISEASE", "SURGERY"],
+    PROPERTY: ["PROPERTY", "FOREIGN", "MONEY", "FAMILY", "LEGAL", "SETTLEMENT"],
+    LEGAL: ["LEGAL", "CAREER", "MONEY", "REPUTATION", "ENEMY", "DOCUMENT"],
     CHILDREN: ["CHILDREN", "MARRIAGE", "RELATIONSHIP", "FAMILY"],
-    GENERAL: [
-      "IDENTITY","MIND","COMMUNICATION","FAMILY","HOME","LOVE","CHILDREN","HEALTH",
-      "MARRIAGE","SEX","TRANSFORMATION","FOREIGN","RELIGION","CAREER","GAIN","LOSS",
-      "DEBT","LEGAL","ENEMY","FRIEND","NETWORK","REPUTATION","POWER","AUTHORITY",
-      "BUSINESS","JOB","PARTNERSHIP","DIVORCE","MULTIPLE_MARRIAGE","TRAVEL_SHORT",
-      "TRAVEL_LONG","SETTLEMENT","CITIZENSHIP","ACCIDENT","SURGERY","DISEASE","RECOVERY",
-      "MENTAL","SPIRITUAL","TANTRIC","BLOCKAGE","SUCCESS","FAILURE","DELAY","SUDDEN_GAIN",
-      "SUDDEN_LOSS","FAME","SCANDAL","DOCUMENT","VISA","IMMIGRATION","PROPERTY","VEHICLE"
-    ]
+    GENERAL: DOMAIN_REGISTRY.map((d) => d[0])
   };
-
   return map[primary] || map.GENERAL;
 }
 
@@ -271,8 +266,8 @@ function normalizeEvidence(packet) {
   const natalPlanets = packet?.natal?.planets || [];
   const transitPlanets = packet?.transit_now?.planets || [];
   const aspects = packet?.natal?.aspects || [];
-  const asc = packet?.natal?.ascendant || null;
-  const wholeSignHouses = packet?.natal?.houses_whole_sign || null;
+  const ascendant = packet?.natal?.ascendant || null;
+  const housesByPlanet = packet?.natal?.houses_by_planet || {};
 
   const natalMap = {};
   natalPlanets.forEach((p) => {
@@ -284,23 +279,11 @@ function normalizeEvidence(packet) {
     transitMap[(p.planet || "").toUpperCase()] = p;
   });
 
-  const housesByPlanet = {};
-  if (asc && wholeSignHouses) {
-    const ascSignIndex = signToIndex(asc.sign);
-    natalPlanets.forEach((p) => {
-      const pSignIndex = signToIndex(p.sign);
-      if (ascSignIndex >= 0 && pSignIndex >= 0) {
-        const house = ((pSignIndex - ascSignIndex + 12) % 12) + 1;
-        housesByPlanet[(p.planet || "").toUpperCase()] = house;
-      }
-    });
-  }
-
   return {
     natalMap,
     transitMap,
     aspects,
-    ascendant: asc,
+    ascendant,
     housesByPlanet,
     dasha: packet?.dasha || {},
     kp: packet?.kp || {},
@@ -309,14 +292,14 @@ function normalizeEvidence(packet) {
       natal_planet_count: natalPlanets.length,
       transit_planet_count: transitPlanets.length,
       aspect_count: aspects.length,
-      ascendant_present: !!asc,
+      ascendant_present: !!ascendant,
       house_mapping_present: Object.keys(housesByPlanet).length > 0
     }
   };
 }
 
 /* =========================================
-   FULL 50+ DOMAIN NANO SCANNER
+   DOMAIN REGISTRY
 ========================================= */
 
 const DOMAIN_REGISTRY = [
@@ -375,7 +358,11 @@ const DOMAIN_REGISTRY = [
   ["VEHICLE","Vehicle / transport asset",[4,3]]
 ];
 
-function runFullNanoScanner(ctx) {
+/* =========================================
+   UNIVERSAL NANO SCANNER
+========================================= */
+
+function runUniversalNanoScanner(ctx) {
   return DOMAIN_REGISTRY.map(([key, label, houses]) =>
     scanSingleDomain(key, label, houses, ctx)
   );
@@ -386,7 +373,7 @@ function scanSingleDomain(domainKey, domainLabel, targetHouses, ctx) {
 
   const planetScores = [];
   const houseHits = [];
-  const relevantAspects = [];
+  const aspectHits = [];
 
   const benefics = ["JUPITER", "VENUS", "MOON", "MERCURY"];
   const malefics = ["SATURN", "MARS", "RAHU", "KETU", "SUN"];
@@ -396,8 +383,8 @@ function scanSingleDomain(domainKey, domainLabel, targetHouses, ctx) {
       houseHits.push({ planet: planetName, house: houseNum });
 
       let weight = 1;
-      if (benefics.includes(planetName)) weight += 0.7;
-      if (malefics.includes(planetName)) weight += 0.9;
+      if (benefics.includes(planetName)) weight += 0.65;
+      if (malefics.includes(planetName)) weight += 0.85;
 
       planetScores.push({
         planet: planetName,
@@ -414,7 +401,7 @@ function scanSingleDomain(domainKey, domainLabel, targetHouses, ctx) {
     const h2 = evidence.housesByPlanet[p2];
 
     if (targetHouses.includes(h1) || targetHouses.includes(h2)) {
-      relevantAspects.push({
+      aspectHits.push({
         planet1: p1,
         planet2: p2,
         type: asp.type,
@@ -423,27 +410,31 @@ function scanSingleDomain(domainKey, domainLabel, targetHouses, ctx) {
     }
   }
 
-  const rawScore =
+  let rawScore =
     planetScores.reduce((a, b) => a + b.weight, 0) +
-    relevantAspects.length * 0.55 +
-    targetHouses.length * 0.25;
+    aspectHits.length * 0.5 +
+    targetHouses.length * 0.15;
+
+  // Domain-specific score boosts
+  if (domainKey === "MARRIAGE" && factAnchors.marriage_count_claim != null) rawScore += 3;
+  if (domainKey === "FOREIGN" && factAnchors.foreign_entry_year_claim != null) rawScore += 3;
+  if (domainKey === "SETTLEMENT" && factAnchors.settlement_year_claim != null) rawScore += 3;
 
   const normalizedScore = round2(clamp(rawScore, 0, 10));
 
-  let density = "LOW";
-  if (normalizedScore >= 7) density = "HIGH";
-  else if (normalizedScore >= 4) density = "MED";
+  const density =
+    normalizedScore >= 7 ? "HIGH" :
+    normalizedScore >= 4 ? "MED" : "LOW";
 
-  const presentCarryover = normalizedScore >= 4;
   const residualImpact =
     normalizedScore >= 7 ? "HIGH" :
     normalizedScore >= 4 ? "MED" : "LOW";
 
-  const domainEvents = inferDomainEvents(
+  const events = inferDomainEvents(
     domainKey,
     normalizedScore,
     houseHits,
-    relevantAspects,
+    aspectHits,
     factAnchors
   );
 
@@ -454,38 +445,60 @@ function scanSingleDomain(domainKey, domainLabel, targetHouses, ctx) {
     density,
     normalized_score: normalizedScore,
     residual_impact: residualImpact,
-    present_carryover: presentCarryover ? "YES" : "NO",
+    present_carryover: events.some((e) => e.carryover_to_present === "YES") ? "YES" : "NO",
     house_hits: houseHits,
-    aspect_hits: relevantAspects,
-    major_event_count: domainEvents.filter((e) => e.importance === "MAJOR").length,
-    minor_event_count: domainEvents.filter((e) => e.importance === "MINOR").length,
-    broken_event_count: domainEvents.filter((e) => e.status === "BROKEN").length,
-    active_event_count: domainEvents.filter((e) => e.status === "ACTIVE" || e.status === "STABILISING").length,
-    events: domainEvents
+    aspect_hits: aspectHits,
+    major_event_count: events.filter((e) => e.importance === "MAJOR").length,
+    minor_event_count: events.filter((e) => e.importance === "MINOR").length,
+    broken_event_count: events.filter((e) => e.status === "BROKEN").length,
+    active_event_count: events.filter((e) => e.status === "ACTIVE" || e.status === "STABILISING").length,
+    events
   };
 }
 
 function inferDomainEvents(domainKey, score, houseHits, aspectHits, factAnchors) {
   const events = [];
 
-  const strengthLabel =
+  const strength =
     score >= 7 ? "strong" :
     score >= 4 ? "moderate" : "light";
 
   if (domainKey === "MARRIAGE") {
-    const count = factAnchors.marriage_count_claim ?? (score >= 7 ? 2 : 1);
-    const broken = factAnchors.broken_marriage_claim ?? (count > 1 ? 1 : 0);
+    const total = factAnchors.marriage_count_claim ?? (score >= 7 ? 2 : score >= 4 ? 1 : 0);
+    const broken = factAnchors.broken_marriage_claim ?? Math.max(0, total - 1);
 
-    for (let i = 0; i < count; i += 1) {
+    for (let i = 0; i < total; i += 1) {
       const isBroken = i < broken;
+      const remaining = total - broken;
+      let status = "EXECUTED";
+
+      if (isBroken) status = "BROKEN";
+      else if (remaining > 0 && i === total - 1) status = "STABILISING";
+
       events.push({
         event_type: "marriage event",
         event_number: i + 1,
-        evidence_strength: strengthLabel,
-        status: isBroken ? "BROKEN" : i === count - 1 ? "STABILISING" : "EXECUTED",
+        evidence_strength: strength,
+        status,
         importance: "MAJOR",
         trigger_phase: isBroken ? "union then break" : "union then continuation",
         carryover_to_present: isBroken ? "NO" : "YES"
+      });
+    }
+    return events;
+  }
+
+  if (domainKey === "DIVORCE") {
+    const broken = factAnchors.broken_marriage_claim ?? (score >= 7 ? 1 : 0);
+    for (let i = 0; i < broken; i += 1) {
+      events.push({
+        event_type: "separation / divorce event",
+        event_number: i + 1,
+        evidence_strength: strength,
+        status: "BROKEN",
+        importance: "MAJOR",
+        trigger_phase: "rupture / severance",
+        carryover_to_present: i === broken - 1 ? "YES" : "NO"
       });
     }
     return events;
@@ -497,59 +510,71 @@ function inferDomainEvents(domainKey, score, houseHits, aspectHits, factAnchors)
         event_type: "foreign entry event",
         event_number: 1,
         exact_year: factAnchors.foreign_entry_year_claim,
-        evidence_strength: strengthLabel,
+        evidence_strength: strength,
         status: "EXECUTED",
         importance: "MAJOR",
-        trigger_phase: "foreign movement",
+        trigger_phase: "movement / foreign entry",
         carryover_to_present: "NO"
       });
     } else if (score >= 4) {
       events.push({
         event_type: "foreign shift signature",
         event_number: 1,
-        evidence_strength: strengthLabel,
+        evidence_strength: strength,
         status: "LIKELY",
         importance: "MAJOR",
-        trigger_phase: "distance / separation pattern",
+        trigger_phase: "distance / withdrawal pattern",
         carryover_to_present: "NO"
       });
     }
-
-    if (factAnchors.settlement_year_claim) {
-      events.push({
-        event_type: "foreign settlement event",
-        event_number: 2,
-        exact_year: factAnchors.settlement_year_claim,
-        evidence_strength: strengthLabel,
-        status: "STABILISING",
-        importance: "MAJOR",
-        trigger_phase: "base formation",
-        carryover_to_present: "YES"
-      });
-    }
-
     return events;
   }
 
-  if (domainKey === "CAREER") {
+  if (domainKey === "SETTLEMENT") {
+    if (factAnchors.settlement_year_claim) {
+      events.push({
+        event_type: "settlement / base formation event",
+        event_number: 1,
+        exact_year: factAnchors.settlement_year_claim,
+        evidence_strength: strength,
+        status: "STABILISING",
+        importance: "MAJOR",
+        trigger_phase: "base formation / permanence",
+        carryover_to_present: "YES"
+      });
+    } else if (score >= 4) {
+      events.push({
+        event_type: "settlement signature",
+        event_number: 1,
+        evidence_strength: strength,
+        status: "ACTIVE",
+        importance: "MAJOR",
+        trigger_phase: "base consolidation",
+        carryover_to_present: "YES"
+      });
+    }
+    return events;
+  }
+
+  if (domainKey === "CAREER" || domainKey === "JOB" || domainKey === "BUSINESS") {
     if (score >= 7) {
       events.push(
         {
           event_type: "career establishment phase",
           event_number: 1,
-          evidence_strength: strengthLabel,
+          evidence_strength: strength,
           status: "EXECUTED",
           importance: "MAJOR",
-          trigger_phase: "public role opening",
+          trigger_phase: "role opening",
           carryover_to_present: "NO"
         },
         {
           event_type: "career restructuring phase",
           event_number: 2,
-          evidence_strength: strengthLabel,
+          evidence_strength: strength,
           status: "ACTIVE",
           importance: "MAJOR",
-          trigger_phase: "authority / work re-ordering",
+          trigger_phase: "work / authority re-ordering",
           carryover_to_present: "YES"
         }
       );
@@ -557,71 +582,35 @@ function inferDomainEvents(domainKey, score, houseHits, aspectHits, factAnchors)
       events.push({
         event_type: "career activity phase",
         event_number: 1,
-        evidence_strength: strengthLabel,
+        evidence_strength: strength,
         status: "ACTIVE",
         importance: "MAJOR",
-        trigger_phase: "work/service engagement",
+        trigger_phase: "service / role engagement",
         carryover_to_present: "YES"
       });
     }
     return events;
   }
 
-  if (domainKey === "HEALTH") {
+  if (domainKey === "MONEY" || domainKey === "GAIN" || domainKey === "DEBT" || domainKey === "LOSS") {
     if (score >= 7) {
       events.push(
         {
-          event_type: "major stress / weakness phase",
+          event_type: "financial pressure or gain phase",
           event_number: 1,
-          evidence_strength: strengthLabel,
+          evidence_strength: strength,
           status: "EXECUTED",
           importance: "MAJOR",
-          trigger_phase: "health strain",
+          trigger_phase: "cashflow activation",
           carryover_to_present: "NO"
         },
         {
-          event_type: "recurring health residue",
+          event_type: "money residue or continuation",
           event_number: 2,
-          evidence_strength: strengthLabel,
-          status: "ACTIVE",
-          importance: "MAJOR",
-          trigger_phase: "repeat vulnerability",
-          carryover_to_present: "YES"
-        }
-      );
-    } else if (score >= 4) {
-      events.push({
-        event_type: "health pressure signature",
-        event_number: 1,
-        evidence_strength: strengthLabel,
-        status: "RESIDUAL",
-        importance: "MAJOR",
-        trigger_phase: "strain / imbalance",
-        carryover_to_present: "YES"
-      });
-    }
-    return events;
-  }
-
-  if (domainKey === "MONEY") {
-    if (score >= 7) {
-      events.push(
-        {
-          event_type: "cash pressure / debt cycle",
-          event_number: 1,
-          evidence_strength: strengthLabel,
-          status: "EXECUTED",
-          importance: "MAJOR",
-          trigger_phase: "financial compression",
-          carryover_to_present: "NO"
-        },
-        {
-          event_type: "income recovery phase",
-          event_number: 2,
-          evidence_strength: strengthLabel,
+          evidence_strength: strength,
           status: "STABILISING",
           importance: "MAJOR",
-          trigger_phase: "money recovery",
+          trigger_phase: "financial aftermath",
           carryover_to_present: "YES"
         }
       );
@@ -629,7 +618,7 @@ function inferDomainEvents(domainKey, score, houseHits, aspectHits, factAnchors)
       events.push({
         event_type: "money movement signature",
         event_number: 1,
-        evidence_strength: strengthLabel,
+        evidence_strength: strength,
         status: "ACTIVE",
         importance: "MAJOR",
         trigger_phase: "financial motion",
@@ -639,30 +628,96 @@ function inferDomainEvents(domainKey, score, houseHits, aspectHits, factAnchors)
     return events;
   }
 
-  if (domainKey === "RELATIONSHIP") {
-    if (score >= 4) {
+  if (domainKey === "HEALTH" || domainKey === "DISEASE" || domainKey === "RECOVERY" || domainKey === "MENTAL") {
+    if (score >= 7) {
+      events.push(
+        {
+          event_type: "health pressure phase",
+          event_number: 1,
+          evidence_strength: strength,
+          status: "EXECUTED",
+          importance: "MAJOR",
+          trigger_phase: "strain / imbalance",
+          carryover_to_present: "NO"
+        },
+        {
+          event_type: "health residue or repeat cycle",
+          event_number: 2,
+          evidence_strength: strength,
+          status: "ACTIVE",
+          importance: "MAJOR",
+          trigger_phase: "recurring vulnerability",
+          carryover_to_present: "YES"
+        }
+      );
+    } else if (score >= 4) {
       events.push({
-        event_type: "unstable relational loop",
+        event_type: "health signature",
         event_number: 1,
-        evidence_strength: strengthLabel,
-        status: score >= 7 ? "BROKEN" : "RESIDUAL",
+        evidence_strength: strength,
+        status: "RESIDUAL",
         importance: "MAJOR",
-        trigger_phase: "emotional complexity",
+        trigger_phase: "strain signature",
         carryover_to_present: "YES"
       });
     }
     return events;
   }
 
-  if (domainKey === "BREAK" || domainKey === "TRANSFORMATION" || domainKey === "DIVORCE") {
+  if (domainKey === "RELATIONSHIP" || domainKey === "LOVE" || domainKey === "PARTNERSHIP") {
     if (score >= 4) {
       events.push({
-        event_type: "break / shock phase",
+        event_type: "relationship complexity phase",
         event_number: 1,
-        evidence_strength: strengthLabel,
+        evidence_strength: strength,
+        status: score >= 7 ? "BROKEN" : "RESIDUAL",
+        importance: "MAJOR",
+        trigger_phase: "emotional loop / attachment",
+        carryover_to_present: "YES"
+      });
+    }
+    return events;
+  }
+
+  if (domainKey === "LEGAL" || domainKey === "DOCUMENT" || domainKey === "VISA" || domainKey === "IMMIGRATION") {
+    if (score >= 4) {
+      events.push({
+        event_type: "legal / documentation event",
+        event_number: 1,
+        evidence_strength: strength,
+        status: score >= 7 ? "EXECUTED" : "PARTIAL",
+        importance: "MAJOR",
+        trigger_phase: "authority / approval / paperwork",
+        carryover_to_present: score >= 7 ? "NO" : "YES"
+      });
+    }
+    return events;
+  }
+
+  if (domainKey === "PROPERTY" || domainKey === "HOME" || domainKey === "VEHICLE") {
+    if (score >= 4) {
+      events.push({
+        event_type: "property / base event",
+        event_number: 1,
+        evidence_strength: strength,
+        status: score >= 7 ? "EXECUTED" : "ACTIVE",
+        importance: "MAJOR",
+        trigger_phase: "base / asset / movement",
+        carryover_to_present: "YES"
+      });
+    }
+    return events;
+  }
+
+  if (domainKey === "FAILURE" || domainKey === "BLOCKAGE" || domainKey === "DELAY" || domainKey === "SCANDAL") {
+    if (score >= 4) {
+      events.push({
+        event_type: `${domainKey.toLowerCase()} phase`,
+        event_number: 1,
+        evidence_strength: strength,
         status: "BROKEN",
         importance: "MAJOR",
-        trigger_phase: "shock / rupture",
+        trigger_phase: "obstruction / rupture",
         carryover_to_present: "YES"
       });
     }
@@ -670,29 +725,31 @@ function inferDomainEvents(domainKey, score, houseHits, aspectHits, factAnchors)
   }
 
   if (score >= 7) {
-    events.push({
-      event_type: `${domainKey.toLowerCase()} major activation`,
-      event_number: 1,
-      evidence_strength: strengthLabel,
-      status: "EXECUTED",
-      importance: "MAJOR",
-      trigger_phase: "domain activation",
-      carryover_to_present: "NO"
-    });
-    events.push({
-      event_type: `${domainKey.toLowerCase()} continuing residue`,
-      event_number: 2,
-      evidence_strength: strengthLabel,
-      status: "ACTIVE",
-      importance: "MINOR",
-      trigger_phase: "continued influence",
-      carryover_to_present: "YES"
-    });
+    events.push(
+      {
+        event_type: `${domainKey.toLowerCase()} major activation`,
+        event_number: 1,
+        evidence_strength: strength,
+        status: "EXECUTED",
+        importance: "MAJOR",
+        trigger_phase: "domain activation",
+        carryover_to_present: "NO"
+      },
+      {
+        event_type: `${domainKey.toLowerCase()} continuing residue`,
+        event_number: 2,
+        evidence_strength: strength,
+        status: "ACTIVE",
+        importance: "MINOR",
+        trigger_phase: "continued influence",
+        carryover_to_present: "YES"
+      }
+    );
   } else if (score >= 4) {
     events.push({
       event_type: `${domainKey.toLowerCase()} signature`,
       event_number: 1,
-      evidence_strength: strengthLabel,
+      evidence_strength: strength,
       status: "RESIDUAL",
       importance: "MINOR",
       trigger_phase: "moderate activation",
@@ -704,7 +761,7 @@ function inferDomainEvents(domainKey, score, houseHits, aspectHits, factAnchors)
 }
 
 /* =========================================
-   RANK / TIMELINE / SUMMARY
+   RANKING / SUMMARY / TIMELINE
 ========================================= */
 
 function rankDomains(domainResults, linkedExpansion, questionProfile) {
@@ -724,6 +781,7 @@ function rankDomains(domainResults, linkedExpansion, questionProfile) {
 function buildEventSummary(rankedDomains) {
   const marriageDomain = rankedDomains.find((d) => d.domain_key === "MARRIAGE");
   const foreignDomain = rankedDomains.find((d) => d.domain_key === "FOREIGN");
+  const settlementDomain = rankedDomains.find((d) => d.domain_key === "SETTLEMENT");
 
   return {
     total_estimated_events: rankedDomains.reduce((a, b) => a + b.events.length, 0),
@@ -733,7 +791,14 @@ function buildEventSummary(rankedDomains) {
     total_active_events: rankedDomains.reduce((a, b) => a + b.active_event_count, 0),
     marriage_count: marriageDomain ? marriageDomain.events.filter((e) => e.event_type === "marriage event").length : 0,
     broken_marriage_count: marriageDomain ? marriageDomain.events.filter((e) => e.status === "BROKEN").length : 0,
+    current_marriage_status: marriageDomain
+      ? (marriageDomain.events.findLast?.((e) => e.status === "STABILISING" || e.status === "ACTIVE")?.status ||
+         marriageDomain.events[marriageDomain.events.length - 1]?.status ||
+         "UNKNOWN")
+      : "UNKNOWN",
     foreign_shift_count: foreignDomain ? foreignDomain.events.length : 0,
+    foreign_entry_year: foreignDomain?.events?.find((e) => e.event_type === "foreign entry event")?.exact_year ?? null,
+    settlement_year: settlementDomain?.events?.find((e) => e.event_type === "settlement / base formation event")?.exact_year ?? null,
     top_5_domains: rankedDomains.slice(0, 5).map((d) => d.domain_label)
   };
 }
@@ -744,11 +809,11 @@ function buildMasterTimeline(rankedDomains, birthContext) {
 
   rankedDomains.forEach((d) => {
     d.events.forEach((e) => {
-      let date_marker = e.exact_year || null;
+      let date_marker = e.exact_year ?? null;
 
       if (!date_marker && birthYear) {
-        const pseudoYear = inferPseudoYearFromRank(birthYear, d.rank_score, e.event_number);
-        date_marker = pseudoYear;
+        const offset = Math.floor(d.rank_score * 1.8) + e.event_number * 2;
+        date_marker = birthYear + offset;
       }
 
       out.push({
@@ -772,17 +837,6 @@ function buildMasterTimeline(rankedDomains, birthContext) {
   });
 }
 
-function safeBirthYear(birthIso) {
-  if (!birthIso) return null;
-  const d = new Date(birthIso);
-  return Number.isNaN(d.getTime()) ? null : d.getUTCFullYear();
-}
-
-function inferPseudoYearFromRank(birthYear, rankScore, eventNumber) {
-  const offset = Math.floor(rankScore * 1.7) + eventNumber * 2;
-  return birthYear + offset;
-}
-
 function buildCarryover(rankedDomains) {
   const carryoverDomains = rankedDomains
     .filter((d) => d.present_carryover === "YES")
@@ -801,6 +855,7 @@ function buildCarryover(rankedDomains) {
 function buildValidation(rankedDomains, factAnchors) {
   const marriageDomain = rankedDomains.find((d) => d.domain_key === "MARRIAGE");
   const foreignDomain = rankedDomains.find((d) => d.domain_key === "FOREIGN");
+  const settlementDomain = rankedDomains.find((d) => d.domain_key === "SETTLEMENT");
 
   const marriageCount = marriageDomain
     ? marriageDomain.events.filter((e) => e.event_type === "marriage event").length
@@ -811,7 +866,7 @@ function buildValidation(rankedDomains, factAnchors) {
     : 0;
 
   const foreignEntry = foreignDomain?.events?.find((e) => e.event_type === "foreign entry event")?.exact_year ?? null;
-  const settlementYear = foreignDomain?.events?.find((e) => e.event_type === "foreign settlement event")?.exact_year ?? null;
+  const settlementYear = settlementDomain?.events?.find((e) => e.event_type === "settlement / base formation event")?.exact_year ?? null;
 
   return {
     reality_validation_active: factAnchors.provided,
@@ -837,9 +892,9 @@ function buildVerdict(questionProfile, eventSummary, carryover, validation) {
       `${eventSummary.total_broken_events} broken signatures, and ` +
       `${carryover.present_carryover_detected ? "active residue" : "limited residue"}.`,
     validation_state:
-      ["CONFLICT"].includes(validation.marriage_fact_match) ||
-      ["CONFLICT"].includes(validation.foreign_fact_match) ||
-      ["CONFLICT"].includes(validation.settlement_fact_match)
+      validation.marriage_fact_match === "CONFLICT" ||
+      validation.foreign_fact_match === "CONFLICT" ||
+      validation.settlement_fact_match === "CONFLICT"
         ? "CONFLICT_PRESENT"
         : "STABLE"
   };
@@ -848,9 +903,9 @@ function buildVerdict(questionProfile, eventSummary, carryover, validation) {
 function buildLokkotha(questionProfile, eventSummary, carryover) {
   return {
     text:
-      `${questionProfile.primary_domain.toLowerCase()}-এর জবাব সোজা পথে আসে না; ` +
+      `${questionProfile.primary_domain.toLowerCase()}-এর হিসাব সোজা পথে মেটে না; ` +
       `বড় চিহ্ন ছিল ${eventSummary.total_major_events}, ভাঙা ছিল ${eventSummary.total_broken_events}, ` +
-      `আর তার ঢেউ ${carryover.present_carryover_detected ? "এখনও আছে" : "ধীরে নেমে গেছে"}.`
+      `আর তার ঢেউ ${carryover.present_carryover_detected ? "এখনও টিকে আছে" : "ধীরে নেমে গেছে"}.`
   };
 }
 
@@ -866,7 +921,7 @@ function buildProjectPasteBlock({
   lokkotha
 }) {
   const lines = [
-    "PAST NANO FORENSIC PROJECT BLOCK",
+    "PAST UNIVERSAL NANO FORENSIC BLOCK",
     `Subject: ${input.name || "UNKNOWN"}`,
     `Primary Domain: ${questionProfile.primary_domain}`,
     `Top Domains: ${rankedDomains.slice(0, 6).map((d) => d.domain_label).join(" | ")}`,
@@ -875,7 +930,10 @@ function buildProjectPasteBlock({
     `Total Broken Events: ${eventSummary.total_broken_events}`,
     `Marriage Count: ${eventSummary.marriage_count}`,
     `Broken Marriage Count: ${eventSummary.broken_marriage_count}`,
+    `Current Marriage Status: ${eventSummary.current_marriage_status}`,
     `Foreign Shift Count: ${eventSummary.foreign_shift_count}`,
+    `Foreign Entry Year: ${eventSummary.foreign_entry_year ?? "UNKNOWN"}`,
+    `Settlement Year: ${eventSummary.settlement_year ?? "UNKNOWN"}`,
     `Carryover Present: ${carryover.present_carryover_detected ? "YES" : "NO"}`,
     `Marriage Validation: ${validation.marriage_fact_match}`,
     `Broken Marriage Validation: ${validation.broken_marriage_fact_match}`,
@@ -892,20 +950,6 @@ function buildProjectPasteBlock({
     );
   });
 
-  lines.push("PAST NANO FORENSIC BLOCK END");
+  lines.push("PAST UNIVERSAL NANO FORENSIC BLOCK END");
   return lines.join("\n");
-}
-
-function minifyDomain(d) {
-  return {
-    domain_key: d.domain_key,
-    domain_label: d.domain_label,
-    rank_score: d.rank_score,
-    normalized_score: d.normalized_score,
-    density: d.density,
-    residual_impact: d.residual_impact,
-    major_event_count: d.major_event_count,
-    broken_event_count: d.broken_event_count,
-    active_event_count: d.active_event_count
-  };
 }
