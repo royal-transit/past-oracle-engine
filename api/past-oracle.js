@@ -2,6 +2,31 @@
 import { buildChartCore } from "../lib/chart-core.js";
 import { astroProvider } from "../lib/provider-adapter.js";
 
+/* ------------------------------
+   BASIC HELPERS
+------------------------------ */
+
+const str = (v) => (v == null ? "" : String(v).trim());
+
+const toNum = (v) => {
+  if (v == null || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+};
+
+const normalizeFormat = (v) => {
+  const x = str(v).toLowerCase();
+  if (x === "compact") return "compact";
+  if (x === "project") return "project";
+  return "json";
+};
+
+const hasAny = (text, arr) => arr.some((x) => text.includes(x));
+
+/* ------------------------------
+   MAIN HANDLER
+------------------------------ */
+
 export default async function handler(req, res) {
   try {
     const q = req.query || {};
@@ -16,7 +41,7 @@ export default async function handler(req, res) {
       timezone_offset: str(q.timezone_offset || "+06:00"),
       question: str(q.question),
       facts: str(q.facts),
-      format: normalizeFormat(str(q.format || "json"))
+      format: normalizeFormat(q.format)
     };
 
     const core = await buildChartCore(input, astroProvider);
@@ -131,39 +156,39 @@ function runAllDomainForensicScan(ctx) {
 
 function scanIdentity(ctx) {
   return makeDomain("IDENTITY", "Identity / Self / Direction", [
-    mkEvent("major self-reset phase", 18, 21, "EXECUTED", "identity restructuring"),
-    mkEvent("directional rebuilding phase", 31, 33, "ACTIVE", "present direction carryover", true)
+    mkEvent("major self-reset phase", "18-21", "EXECUTED", "identity restructuring"),
+    mkEvent("directional rebuilding phase", "31-33", "ACTIVE", "present direction carryover", true)
   ]);
 }
 
 function scanFamily(ctx) {
   return makeDomain("FAMILY", "Family / Wealth / Speech", [
-    mkEvent("family responsibility or burden phase", 23, 26, "EXECUTED", "family pressure activation")
+    mkEvent("family responsibility or burden phase", "23-26", "EXECUTED", "family pressure activation")
   ]);
 }
 
 function scanCommunication(ctx) {
   return makeDomain("COMMUNICATION", "Communication / Effort / Siblings", [
-    mkEvent("document / message distortion phase", 27, 28, "PARTIAL", "communication conflict")
+    mkEvent("document / message distortion phase", "27-28", "PARTIAL", "communication conflict")
   ]);
 }
 
 function scanHomeProperty(ctx) {
   return makeDomain("PROPERTY", "Home / Property / Residence", [
-    mkEvent("home / residence shift", 24, 26, "EXECUTED", "base movement", true)
+    mkEvent("home / residence shift", "24-26", "EXECUTED", "base movement", true)
   ]);
 }
 
 function scanLoveChildren(ctx) {
   return makeDomain("CHILDREN", "Love / Children / Creativity", [
-    mkEvent("major love / attachment event", 25, 27, "EXECUTED", "emotional activation")
+    mkEvent("major love / attachment event", "25-27", "EXECUTED", "emotional activation")
   ]);
 }
 
 function scanHealth(ctx) {
   return makeDomain("HEALTH", "Health / Stress / Disease / Recovery", [
-    mkEvent("major stress / weakness phase", 22, 24, "EXECUTED", "health strain"),
-    mkEvent("recurring health / stress residue", 32, 33, "ACTIVE", "repeat vulnerability", true)
+    mkEvent("major stress / weakness phase", "22-24", "EXECUTED", "health strain"),
+    mkEvent("recurring health / stress residue", "32-33", "ACTIVE", "repeat vulnerability", true)
   ]);
 }
 
@@ -181,7 +206,13 @@ function scanMarriage(ctx) {
     const status = broken ? "BROKEN" : i === marriageCount - 1 ? "STABILISING" : "EXECUTED";
 
     events.push(
-      mkEvent("marriage event", start, end, status, broken ? "formation then break" : "formation then continuation", !broken)
+      mkEvent(
+        "marriage event",
+        `${start}-${end}`,
+        status,
+        broken ? "formation then break" : "formation then continuation",
+        !broken
+      )
     );
   }
 
@@ -190,26 +221,26 @@ function scanMarriage(ctx) {
 
 function scanBreakShock(ctx) {
   return makeDomain("BREAK", "Shock / Break / Hidden / Scandal", [
-    mkEvent("sudden break phase", 26, 27, "BROKEN", "shock / break activation", true)
+    mkEvent("sudden break phase", "26-27", "BROKEN", "shock / break activation", true)
   ]);
 }
 
 function scanFortuneTravel(ctx) {
   return makeDomain("FORTUNE", "Fortune / Father / Travel / Grace", [
-    mkEvent("fortune support phase", 28, 30, "EXECUTED", "luck opening")
+    mkEvent("fortune support phase", "28-30", "EXECUTED", "luck opening")
   ]);
 }
 
 function scanCareer(ctx) {
   return makeDomain("CAREER", "Career / Authority / Public Role", [
-    mkEvent("job / role start", 20, 22, "EXECUTED", "entry"),
-    mkEvent("current career phase", 27, 29, "ACTIVE", "restructure", true)
+    mkEvent("job / role start", "20-22", "EXECUTED", "entry"),
+    mkEvent("current career phase", "27-29", "ACTIVE", "restructure", true)
   ]);
 }
 
 function scanGainNetwork(ctx) {
   return makeDomain("GAIN", "Gain / Network / Achievement", [
-    mkEvent("gain or network support phase", 31, 33, "EXECUTED", "achievement cluster")
+    mkEvent("gain or network support phase", "31-33", "EXECUTED", "achievement cluster")
   ]);
 }
 
@@ -226,38 +257,38 @@ function scanForeign(ctx) {
 
 function scanMoney(ctx) {
   return makeDomain("MONEY", "Money Flow / Cash / Debt Pattern", [
-    mkEvent("cash pressure / debt cycle", 25, 27, "EXECUTED", "financial compression"),
-    mkEvent("income recovery / gain phase", 33, 35, "STABILISING", "money recovery", true)
+    mkEvent("cash pressure / debt cycle", "25-27", "EXECUTED", "financial compression"),
+    mkEvent("income recovery / gain phase", "33-35", "STABILISING", "money recovery", true)
   ]);
 }
 
 function scanLegal(ctx) {
   return makeDomain("LEGAL", "Legal / Authority / Penalty", [
-    mkEvent("authority / penalty / paperwork conflict", 30, 31, "EXECUTED", "authority pressure")
+    mkEvent("authority / penalty / paperwork conflict", "30-31", "EXECUTED", "authority pressure")
   ]);
 }
 
 function scanRelationshipComplexity(ctx) {
   return makeDomain("RELATIONSHIP", "Relationship Complexity", [
-    mkEvent("hidden / unstable relational loop", 24, 26, "BROKEN", "emotional complexity", true)
+    mkEvent("hidden / unstable relational loop", "24-26", "BROKEN", "emotional complexity", true)
   ]);
 }
 
 function scanFailure(ctx) {
   return makeDomain("FAILURE", "Event Failure / Near-Success Collapse", [
-    mkEvent("started but failed event", 28, 29, "FAILED", "execution failure", true)
+    mkEvent("started but failed event", "28-29", "FAILED", "execution failure", true)
   ]);
 }
 
 function scanReputation(ctx) {
   return makeDomain("REPUTATION", "Reputation / Social Image", [
-    mkEvent("visibility / reputation rise", 31, 32, "EXECUTED", "public exposure phase")
+    mkEvent("visibility / reputation rise", "31-32", "EXECUTED", "public exposure phase")
   ]);
 }
 
 function scanSpiritual(ctx) {
   return makeDomain("SPIRITUAL", "Spiritual / Inner Turning", [
-    mkEvent("inner correction / spiritual turning phase", 32, 34, "RESIDUAL", "withdrawal and correction", true)
+    mkEvent("inner correction / spiritual turning phase", "32-34", "RESIDUAL", "withdrawal and correction", true)
   ]);
 }
 
@@ -265,10 +296,10 @@ function scanSpiritual(ctx) {
    EVENT HELPERS
 ------------------------------ */
 
-function mkEvent(type, ageStart, ageEnd, status, trigger_phase, carry = false) {
+function mkEvent(type, age_band, status, trigger_phase, carry = false) {
   return {
     event_type: type,
-    age_band: `${ageStart}-${ageEnd}`,
+    age_band,
     status,
     trigger_phase,
     carryover_to_present: carry ? "YES" : "NO"
@@ -438,22 +469,6 @@ function buildProjectPasteBlock({ input, summary, timeline, carryover, validatio
   return lines.join("\n");
 }
 
-function buildCompactBlock({ input, mode, questionRouting, eventSummary, carryover, confidence, verdict }) {
-  return {
-    subject: input.name || "UNKNOWN",
-    mode,
-    primary_domain: questionRouting.primary_domain,
-    total_major_events: eventSummary.total_major_events,
-    total_broken_events: eventSummary.total_broken_events,
-    marriage_count: eventSummary.marriage_count,
-    foreign_entry_year: eventSummary.foreign_entry_year,
-    settlement_year: eventSummary.settlement_year,
-    carryover_present: carryover.present_carryover_detected,
-    confidence,
-    verdict: verdict.forensic_direction
-  };
-}
-
 /* ------------------------------
    FACT HELPERS
 ------------------------------ */
@@ -491,9 +506,4 @@ function extractYearNear(text, keywords) {
   if (!keywords.some((k) => text.includes(k))) return null;
   const years = [...text.matchAll(/\b(19|20)\d{2}\b/g)].map((m) => Number(m[0]));
   return years.length ? years[0] : null;
-}
-
-function toNum(v) {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
 }
