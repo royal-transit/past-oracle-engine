@@ -1,1167 +1,1401 @@
 export default function handler(req, res) {
   try {
     const now = new Date();
-    const query = req.query || {};
+    const q = req.query || {};
 
-    const rawName = typeof query.name === "string" ? query.name.trim() : "";
-    const rawDob = typeof query.dob === "string" ? query.dob.trim() : "";
-    const rawQuestion = typeof query.question === "string" ? query.question.trim() : "";
-    const rawFormat = typeof query.format === "string" ? query.format.trim().toLowerCase() : "json";
-
-    const hasName = rawName.length > 0;
-    const hasDob = rawDob.length > 0;
-    const hasQuestion = rawQuestion.length > 0;
-
-    let mode = "NO_INPUT";
-    if (hasDob && hasName) {
-      mode = "HYBRID_MODE";
-    } else if (hasDob) {
-      mode = "DOB_MODE";
-    } else if (hasName) {
-      mode = "NAME_MODE";
-    }
-
-    const dobValidation = validateDob(rawDob);
-    const dobReady = dobValidation.valid && !!dobValidation.normalized;
-
-    const ageContext = dobReady ? buildAgeContext(dobValidation.normalized, now) : null;
-    const reverseScanBands = dobReady ? buildReverseScanBands(ageContext) : [];
-    const memoryAnchorScan = buildMemoryAnchorScan(mode, dobReady, hasName, ageContext);
-    const nameVibrationBlock = buildNameVibrationBlock(rawName, hasName, dobReady);
-    const questionRouting = buildQuestionRouting(rawQuestion, hasQuestion);
-    const eventDensityLogic = buildEventDensityLogic({
-      mode,
-      dobReady,
-      reverseScanBands,
-      hasQuestion,
-      questionRouting
-    });
-    const eventSignalMap = buildEventSignalMap({
-      mode,
-      dobReady,
-      hasName,
-      questionRouting
-    });
-    const yearBandNarrowing = buildYearBandNarrowing({
-      dobReady,
-      ageContext,
-      eventDensityLogic
-    });
-    const anchorConvergence = buildAnchorConvergence({
-      dobReady,
-      hasName,
-      questionRouting,
-      eventSignalMap,
-      yearBandNarrowing
-    });
-    const timelineTruthExtraction = buildTimelineTruthExtraction({
-      dobReady,
-      hasName,
-      mode,
-      questionRouting,
-      eventDensityLogic,
-      eventSignalMap,
-      anchorConvergence
-    });
-
-    const contradictionFilter = buildContradictionFilter({
-      mode,
-      dobReady,
-      hasName,
-      questionRouting,
-      eventSignalMap,
-      timelineTruthExtraction
-    });
-
-    const multiEventDetection = buildMultiEventDetection({
-      dobReady,
-      hasName,
-      eventDensityLogic,
-      eventSignalMap,
-      anchorConvergence,
-      questionRouting
-    });
-
-    const forensicConfidence = buildForensicConfidence({
-      mode,
-      dobReady,
-      hasName,
-      hasQuestion,
-      contradictionFilter,
-      anchorConvergence,
-      multiEventDetection
-    });
-
-    const domainReadiness = buildDomainReadiness(mode, dobReady, hasName);
-
-    const forensicSummary = buildForensicSummary({
-      mode,
-      dobReady,
-      hasName,
-      hasQuestion,
-      ageContext,
-      questionRouting,
-      eventDensityLogic,
-      eventSignalMap,
-      yearBandNarrowing,
-      timelineTruthExtraction,
-      anchorConvergence,
-      contradictionFilter,
-      multiEventDetection,
-      forensicConfidence
-    });
-
-    const lokkothaSummary = buildLokkothaSummary({
-      mode,
-      dobReady,
-      hasName,
-      questionRouting,
-      timelineTruthExtraction,
-      eventSignalMap,
-      multiEventDetection
-    });
-
-    const forensicVerdictBlock = buildForensicVerdictBlock({
-      mode,
-      dobReady,
-      hasName,
-      hasQuestion,
-      questionRouting,
-      contradictionFilter,
-      multiEventDetection,
-      forensicConfidence,
-      timelineTruthExtraction
-    });
-
-    const verdict = buildVerdict({
-      mode,
-      dobValid: dobValidation.valid,
-      hasName,
-      hasQuestion,
-      dobReady
-    });
-
-    const projectPasteBlock = buildProjectPasteBlock({
-      mode,
-      rawName,
-      normalizedDob: dobValidation.normalized,
-      forensicConfidence,
-      eventDensityLogic,
-      eventSignalMap,
-      yearBandNarrowing,
-      timelineTruthExtraction,
-      contradictionFilter,
-      multiEventDetection,
-      forensicVerdictBlock,
-      forensicSummary,
-      lokkothaSummary,
-      verdict
-    });
-
-    const fullResponse = {
-      endpoint_called: "past-oracle.js",
-      engine_status: "PAST_FORENSIC_ENGINE_PHASE_6",
-      system_status: "ACTIVE",
-      generated_at_utc: now.toISOString(),
-      output_format: normalizeFormat(rawFormat),
-
-      input_packet: {
-        name: rawName || null,
-        dob: rawDob || null,
-        question: rawQuestion || null,
-        has_name: hasName,
-        has_dob: hasDob,
-        has_question: hasQuestion
-      },
-
-      mode_detection: {
-        selected_mode: mode,
-        reasoning:
-          mode === "HYBRID_MODE"
-            ? "Both name and dob supplied"
-            : mode === "DOB_MODE"
-            ? "DOB supplied, name absent or optional"
-            : mode === "NAME_MODE"
-            ? "Name supplied, DOB absent"
-            : "No usable input supplied"
-      },
-
-      validation_block: {
-        dob_format_valid: dobValidation.valid,
-        dob_normalized: dobValidation.normalized,
-        dob_error: dobValidation.error
-      },
-
-      age_context: ageContext,
-
-      reverse_scan_engine: {
-        status: dobReady ? "ACTIVE" : "LIMITED",
-        scan_mode: dobReady ? "DOB_ANCHORED_REVERSE_SCAN" : hasName ? "NAME_FALLBACK_PREP" : "NO_SCAN",
-        coverage_strength: dobReady ? "HIGHER_PRECISION" : hasName ? "LOWER_PRECISION_NAME_MODE" : "UNAVAILABLE",
-        bands: reverseScanBands
-      },
-
-      memory_anchor_detection: memoryAnchorScan,
-      name_vibration_fallback: nameVibrationBlock,
-      question_routing: questionRouting,
-      event_density_logic: eventDensityLogic,
-      event_signal_map: eventSignalMap,
-      year_band_narrowing: yearBandNarrowing,
-      anchor_convergence: anchorConvergence,
-      timeline_truth_extraction: timelineTruthExtraction,
-      contradiction_filter: contradictionFilter,
-      multi_event_detection: multiEventDetection,
-      forensic_confidence: forensicConfidence,
-      domain_readiness: domainReadiness,
-      forensic_summary: forensicSummary,
-      lokkotha_summary: lokkothaSummary,
-      forensic_verdict_block: forensicVerdictBlock,
-
-      premium_past_forensic_output: {
-        current_stage: "FINAL_GPT_INTEGRATION_READY",
-        next_stage: "ACTION_BINDING_AND_PROJECT_USE",
-        notes: [
-          "Compact output mode is now available",
-          "Project-only output mode is now available",
-          "Default JSON output remains available",
-          "Backend is now GPT integration ready"
-        ]
-      },
-
-      project_paste_block: projectPasteBlock,
-      verdict
+    const input = {
+      name: str(q.name),
+      dob: str(q.dob),
+      tob: str(q.tob),
+      pob: str(q.pob),
+      question: str(q.question),
+      facts: str(q.facts),
+      format: normalizeFormat(str(q.format) || "json")
     };
 
-    const format = normalizeFormat(rawFormat);
+    const birth = parseBirthData(input.dob, input.tob, input.pob);
+    const mode = detectMode(input.name, birth);
+    const ageContext = buildAgeContext(birth);
+    const vibration = buildNameVibration(input.name);
+    const questionRouting = routeQuestion(input.question);
+    const knownFacts = parseKnownFacts(input.facts, input.question);
+    const dataQuality = buildDataQuality(mode, birth, knownFacts);
 
-    if (format === "project") {
+    const domainResults = scanPastEcosystem({
+      input,
+      birth,
+      mode,
+      ageContext,
+      vibration,
+      questionRouting,
+      knownFacts
+    });
+
+    const domainDensityMap = domainResults.map((d) => ({
+      domain_key: d.domain_key,
+      domain_label: d.domain_label,
+      density: d.density,
+      residual_impact: d.residual_impact,
+      present_carryover: d.present_carryover,
+      major_event_count: d.major_event_count,
+      minor_event_count: d.minor_event_count,
+      broken_event_count: d.broken_event_count,
+      active_event_count: d.active_event_count
+    }));
+
+    const eventSummary = buildEventSummary(domainResults);
+    const timeline = buildMasterTimeline(domainResults);
+    const carryover = buildCarryover(domainResults);
+    const validation = buildValidation(domainResults, knownFacts);
+    const confidence = buildConfidence({
+      mode,
+      dataQuality,
+      domainResults,
+      validation,
+      knownFacts
+    });
+    const readableSummary = buildReadableSummary({
+      mode,
+      questionRouting,
+      eventSummary,
+      domainResults,
+      carryover,
+      confidence
+    });
+    const lokkotha = buildLokkotha({
+      questionRouting,
+      eventSummary,
+      carryover,
+      domainResults
+    });
+    const verdict = buildVerdict({
+      questionRouting,
+      eventSummary,
+      carryover,
+      confidence
+    });
+    const projectPasteBlock = buildProjectPasteBlock({
+      input,
+      mode,
+      dataQuality,
+      questionRouting,
+      eventSummary,
+      domainResults,
+      timeline,
+      carryover,
+      validation,
+      confidence,
+      verdict,
+      lokkotha
+    });
+    const compactBlock = buildCompactBlock({
+      input,
+      mode,
+      questionRouting,
+      eventSummary,
+      carryover,
+      confidence,
+      verdict
+    });
+
+    const response = {
+      engine_status: "PAST26_FORENSIC_ECOSYSTEM_V3",
+      generated_at_utc: now.toISOString(),
+      output_format: input.format,
+      input_packet: {
+        name: input.name || null,
+        dob: input.dob || null,
+        tob: input.tob || null,
+        pob: input.pob || null,
+        question: input.question || null,
+        facts: input.facts || null
+      },
+      mode_detection: {
+        mode,
+        birth_data_present: birth.hasBirthData,
+        name_present: !!input.name
+      },
+      data_quality: dataQuality,
+      age_context: ageContext,
+      question_routing: questionRouting,
+      name_vibration_fallback: vibration,
+      known_facts: knownFacts,
+      domain_density_map: domainDensityMap,
+      domain_results: domainResults,
+      event_summary: eventSummary,
+      master_timeline: timeline,
+      current_carryover: carryover,
+      validation_block: validation,
+      forensic_confidence: confidence,
+      forensic_summary: readableSummary,
+      lokkotha_summary: lokkotha,
+      forensic_verdict: verdict,
+      project_paste_block: projectPasteBlock,
+      compact_block: compactBlock
+    };
+
+    if (input.format === "project") {
       return res.status(200).json({
-        endpoint_called: "past-oracle.js",
-        engine_status: "PAST_FORENSIC_ENGINE_PHASE_6",
+        engine_status: "PAST26_FORENSIC_ECOSYSTEM_V3",
         output_format: "project",
         project_paste_block: projectPasteBlock
       });
     }
 
-    if (format === "compact") {
+    if (input.format === "compact") {
       return res.status(200).json({
-        endpoint_called: "past-oracle.js",
-        engine_status: "PAST_FORENSIC_ENGINE_PHASE_6",
+        engine_status: "PAST26_FORENSIC_ECOSYSTEM_V3",
         output_format: "compact",
-        input_packet: {
-          name: rawName || null,
-          dob: dobValidation.normalized || rawDob || null,
-          question: rawQuestion || null
-        },
-        mode: mode,
-        confidence_band: forensicConfidence.confidence_band,
-        confidence_score: forensicConfidence.confidence_score,
-        dominant_recall_band: eventDensityLogic.dominant_band || null,
-        event_signal_family: eventSignalMap.dominant_signal_family || null,
-        narrowed_window: yearBandNarrowing.narrowed_window_label || null,
-        dominant_truth_zone: timelineTruthExtraction.dominant_truth_zone || null,
-        event_shape: multiEventDetection.event_shape || null,
-        contradiction_status: contradictionFilter.contradiction_found ? "PRESENT" : "CLEAR",
-        readable_summary: forensicSummary.client_readable_summary,
-        lokkotha_summary: lokkothaSummary.text,
-        forensic_verdict: forensicVerdictBlock.plain_verdict,
-        practical_verdict: verdict.practical_note,
-        project_paste_block: projectPasteBlock
+        compact_block: compactBlock,
+        forensic_verdict: verdict
       });
     }
 
-    return res.status(200).json(fullResponse);
+    return res.status(200).json(response);
   } catch (error) {
     return res.status(500).json({
-      endpoint_called: "past-oracle.js",
-      engine_status: "PAST_FORENSIC_ENGINE_PHASE_6",
+      engine_status: "PAST26_FORENSIC_ECOSYSTEM_V3",
       system_status: "ERROR",
       error_message: error instanceof Error ? error.message : "Unknown error"
     });
   }
 }
 
-function normalizeFormat(format) {
-  if (format === "project") return "project";
-  if (format === "compact") return "compact";
+/* =========================
+   CORE HELPERS
+========================= */
+
+function str(v) {
+  return typeof v === "string" ? v.trim() : "";
+}
+
+function normalizeFormat(v) {
+  const x = (v || "").toLowerCase();
+  if (x === "compact") return "compact";
+  if (x === "project") return "project";
   return "json";
 }
 
-function validateDob(dob) {
-  if (!dob) {
-    return {
-      valid: false,
-      normalized: null,
-      error: "DOB not supplied"
-    };
-  }
-
-  const isoLike = /^(\d{4})-(\d{2})-(\d{2})$/;
-  const slashLike = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/;
-
-  if (isoLike.test(dob)) {
-    const [, year, month, day] = dob.match(isoLike) || [];
-    if (!isRealDate(Number(year), Number(month), Number(day))) {
-      return {
-        valid: false,
-        normalized: null,
-        error: "DOB format matched YYYY-MM-DD but date is invalid"
-      };
-    }
-
-    return {
-      valid: true,
-      normalized: `${year}-${month}-${day}`,
-      error: null
-    };
-  }
-
-  if (slashLike.test(dob)) {
-    const [, day, month, year] = dob.match(slashLike) || [];
-    const dd = String(day).padStart(2, "0");
-    const mm = String(month).padStart(2, "0");
-
-    if (!isRealDate(Number(year), Number(mm), Number(dd))) {
-      return {
-        valid: false,
-        normalized: null,
-        error: "DOB format matched DD/MM/YYYY but date is invalid"
-      };
-    }
-
-    return {
-      valid: true,
-      normalized: `${year}-${mm}-${dd}`,
-      error: null
-    };
-  }
-
-  return {
-    valid: false,
-    normalized: null,
-    error: "Unsupported DOB format. Use YYYY-MM-DD or DD/MM/YYYY"
-  };
+function hasAny(text, arr) {
+  return arr.some((x) => text.includes(x));
 }
 
-function isRealDate(year, month, day) {
-  if (!year || !month || !day) return false;
-  const date = new Date(Date.UTC(year, month - 1, day));
+function digitalRoot(n) {
+  let x = Math.abs(Number(n) || 0);
+  while (x > 9) {
+    x = String(x)
+      .split("")
+      .reduce((a, b) => a + Number(b), 0);
+  }
+  return x || 1;
+}
+
+function safeYearFromDob(normalizedDob) {
+  if (!normalizedDob) return null;
+  return Number(normalizedDob.slice(0, 4));
+}
+
+function isRealDate(y, m, d) {
+  const dt = new Date(Date.UTC(y, m - 1, d));
   return (
-    date.getUTCFullYear() === year &&
-    date.getUTCMonth() === month - 1 &&
-    date.getUTCDate() === day
+    dt.getUTCFullYear() === y &&
+    dt.getUTCMonth() === m - 1 &&
+    dt.getUTCDate() === d
   );
 }
 
-function buildAgeContext(normalizedDob, now) {
-  const birth = new Date(`${normalizedDob}T00:00:00Z`);
-  const current = new Date(now.toISOString());
+function normalizeDob(dob) {
+  if (!dob) return null;
 
-  let ageYears = current.getUTCFullYear() - birth.getUTCFullYear();
-  const currentMonthDay = `${String(current.getUTCMonth() + 1).padStart(2, "0")}-${String(
-    current.getUTCDate()
-  ).padStart(2, "0")}`;
-  const birthMonthDay = `${String(birth.getUTCMonth() + 1).padStart(2, "0")}-${String(
-    birth.getUTCDate()
-  ).padStart(2, "0")}`;
+  const iso = /^(\d{4})-(\d{2})-(\d{2})$/;
+  const dmy = /^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/;
 
-  if (currentMonthDay < birthMonthDay) {
-    ageYears -= 1;
+  if (iso.test(dob)) {
+    const [, y, m, d] = dob.match(iso) || [];
+    return isRealDate(+y, +m, +d) ? `${y}-${m}-${d}` : null;
+    }
+
+  if (dmy.test(dob)) {
+    const [, d, m, y] = dob.match(dmy) || [];
+    const dd = String(d).padStart(2, "0");
+    const mm = String(m).padStart(2, "0");
+    return isRealDate(+y, +mm, +dd) ? `${y}-${mm}-${dd}` : null;
   }
 
+  return null;
+}
+
+function parseBirthData(dob, tob, pob) {
+  const normalized_dob = normalizeDob(dob);
+  const hasDob = !!normalized_dob;
+  const hasTob = !!tob;
+  const hasPob = !!pob;
   return {
-    birth_date_utc: normalizedDob,
-    approximate_age_years: ageYears >= 0 ? ageYears : 0,
-    lifecycle_stage:
-      ageYears < 13
-        ? "CHILDHOOD"
-        : ageYears < 20
-        ? "ADOLESCENT"
-        : ageYears < 30
-        ? "YOUNG_ADULT"
-        : ageYears < 45
-        ? "ADULT_FORMATION"
-        : ageYears < 60
-        ? "MATURE_PHASE"
-        : "LATE_MATURITY"
+    raw_dob: dob || null,
+    raw_tob: tob || null,
+    raw_pob: pob || null,
+    normalized_dob,
+    hasDob,
+    hasTob,
+    hasPob,
+    hasBirthData: hasDob && hasTob && hasPob
   };
 }
 
-function buildReverseScanBands(ageContext) {
-  if (!ageContext) return [];
+function detectMode(name, birth) {
+  if (birth.hasBirthData) return "FULL_BIRTH_MODE";
+  if (name) return "NAME_MODE";
+  return "MINIMAL_MODE";
+}
 
-  const age = ageContext.approximate_age_years;
+function buildAgeContext(birth) {
+  if (!birth.normalized_dob) {
+    return {
+      age_years: null,
+      age_band: "UNKNOWN",
+      life_stage: "UNKNOWN"
+    };
+  }
 
-  const rawBands = [
-    {
-      label: "RECENT_0_TO_3_YEARS",
-      start_age: Math.max(age - 3, 0),
-      end_age: age,
-      forensic_weight: "VERY_HIGH",
-      memory_recall_probability: "VERY_HIGH",
-      scan_purpose: "fresh memory, recent shocks, negotiations, losses, gains, relationship turns"
-    },
-    {
-      label: "FORMATIVE_3_TO_7_YEARS",
-      start_age: Math.max(age - 7, 0),
-      end_age: Math.max(age - 3, 0),
-      forensic_weight: "HIGH",
-      memory_recall_probability: "HIGH",
-      scan_purpose: "clear remembered transitions, life direction turns, work or family patterning"
-    },
-    {
-      label: "MID_MEMORY_7_TO_12_YEARS",
-      start_age: Math.max(age - 12, 0),
-      end_age: Math.max(age - 7, 0),
-      forensic_weight: "MEDIUM_HIGH",
-      memory_recall_probability: "MEDIUM_HIGH",
-      scan_purpose: "stable memory anchors, major reversals, migration, reputation, emotional shifts"
-    },
-    {
-      label: "DEEP_MEMORY_12_TO_20_YEARS",
-      start_age: Math.max(age - 20, 0),
-      end_age: Math.max(age - 12, 0),
-      forensic_weight: "MEDIUM",
-      memory_recall_probability: "MEDIUM",
-      scan_purpose: "long-cycle background causes, education, identity reformation, old karmic signatures"
-    },
-    {
-      label: "ROOT_PHASE_BIRTH_TO_20PLUS",
-      start_age: 0,
-      end_age: Math.max(age - 20, 0),
-      forensic_weight: age >= 20 ? "SPECIALIZED" : "MERGED_WITH_UPPER_BANDS",
-      memory_recall_probability: age >= 20 ? "LOW_TO_MEDIUM" : "MERGED",
-      scan_purpose: "root conditioning, family field, childhood imprint, origin-story mechanics"
-    }
+  const now = new Date();
+  const dob = new Date(`${birth.normalized_dob}T00:00:00Z`);
+  let age = now.getUTCFullYear() - dob.getUTCFullYear();
+
+  const nowMD = `${String(now.getUTCMonth() + 1).padStart(2, "0")}-${String(
+    now.getUTCDate()
+  ).padStart(2, "0")}`;
+  const dobMD = `${String(dob.getUTCMonth() + 1).padStart(2, "0")}-${String(
+    dob.getUTCDate()
+  ).padStart(2, "0")}`;
+
+  if (nowMD < dobMD) age -= 1;
+
+  const lifeStage =
+    age < 21
+      ? "EARLY_FORMATION"
+      : age < 30
+      ? "FIRST_BUILD"
+      : age < 40
+      ? "EXPANSION_BUILD"
+      : age < 52
+      ? "POWER_CONSOLIDATION"
+      : age < 64
+      ? "LATE_AUTHORITY"
+      : "LEGACY";
+
+  return {
+    age_years: age,
+    age_band: `${age}-${age + 4}`,
+    life_stage: lifeStage
+  };
+}
+
+function buildNameVibration(name) {
+  if (!name) {
+    return { active: false, number: null, planet: null };
+  }
+
+  const map = {
+    1: ["A", "I", "J", "Q", "Y"],
+    2: ["B", "K", "R"],
+    3: ["C", "G", "L", "S"],
+    4: ["D", "M", "T"],
+    5: ["E", "H", "N", "X"],
+    6: ["U", "V", "W"],
+    7: ["O", "Z"],
+    8: ["F", "P"]
+  };
+
+  const reverse = {};
+  for (const [num, letters] of Object.entries(map)) {
+    letters.forEach((l) => {
+      reverse[l] = Number(num);
+    });
+  }
+
+  const clean = name.toUpperCase().replace(/[^A-Z]/g, "");
+  const total = clean.split("").reduce((s, ch) => s + (reverse[ch] || 0), 0);
+  const number = digitalRoot(total || 1);
+
+  const planets = {
+    1: "Sun",
+    2: "Moon",
+    3: "Jupiter",
+    4: "Rahu",
+    5: "Mercury",
+    6: "Venus",
+    7: "Ketu",
+    8: "Saturn",
+    9: "Mars"
+  };
+
+  return {
+    active: true,
+    number,
+    planet: planets[number] || "Sun"
+  };
+}
+
+function routeQuestion(question) {
+  const q = (question || "").toLowerCase();
+  const primary_domain = detectPrimaryDomain(q);
+  const linked_domains = buildLinkedDomains(primary_domain);
+
+  return {
+    raw_question: question || null,
+    primary_domain,
+    linked_domains
+  };
+}
+
+function detectPrimaryDomain(q) {
+  if (hasAny(q, ["marriage", "wife", "husband", "bea", "divorce", "separation"])) return "MARRIAGE";
+  if (hasAny(q, ["relationship", "love", "partner", "breakup", "affair"])) return "RELATIONSHIP";
+  if (hasAny(q, ["career", "job", "profession", "business", "work"])) return "CAREER";
+  if (hasAny(q, ["money", "income", "cash", "debt", "finance"])) return "MONEY";
+  if (hasAny(q, ["foreign", "abroad", "visa", "migration", "uk", "relocation"])) return "FOREIGN";
+  if (hasAny(q, ["health", "illness", "stress", "disease", "hospital", "accident"])) return "HEALTH";
+  if (hasAny(q, ["property", "house", "home", "land"])) return "PROPERTY";
+  if (hasAny(q, ["legal", "court", "fine", "authority", "penalty"])) return "LEGAL";
+  if (hasAny(q, ["child", "children", "son", "daughter"])) return "CHILDREN";
+  if (hasAny(q, ["spiritual", "inner", "zikr", "pir"])) return "SPIRITUAL";
+  return "GENERAL";
+}
+
+function buildLinkedDomains(primary) {
+  const map = {
+    MARRIAGE: ["MARRIAGE", "RELATIONSHIP", "FAMILY", "BREAK", "CARRYOVER", "CHILDREN"],
+    RELATIONSHIP: ["RELATIONSHIP", "MARRIAGE", "BREAK", "CARRYOVER"],
+    CAREER: ["CAREER", "MONEY", "LEGAL", "REPUTATION", "FAILURE", "GAIN"],
+    MONEY: ["MONEY", "CAREER", "GAIN", "LOSS", "FAILURE"],
+    FOREIGN: ["FOREIGN", "PROPERTY", "CAREER", "LOSS", "FAMILY"],
+    HEALTH: ["HEALTH", "RISK", "CARRYOVER"],
+    PROPERTY: ["PROPERTY", "FOREIGN", "FAMILY", "MONEY"],
+    LEGAL: ["LEGAL", "CAREER", "REPUTATION", "RISK", "MONEY"],
+    CHILDREN: ["CHILDREN", "MARRIAGE", "RELATIONSHIP", "FAMILY"],
+    SPIRITUAL: ["SPIRITUAL", "CARRYOVER", "IDENTITY"],
+    GENERAL: [
+      "IDENTITY","FAMILY","COMMUNICATION","PROPERTY","CHILDREN","HEALTH",
+      "MARRIAGE","BREAK","FORTUNE","CAREER","GAIN","FOREIGN","MONEY",
+      "LEGAL","RELATIONSHIP","FAILURE","REPUTATION","SPIRITUAL"
+    ]
+  };
+  return map[primary] || map.GENERAL;
+}
+
+function parseKnownFacts(facts, question) {
+  const text = `${facts || ""} ${question || ""}`.toLowerCase();
+
+  const marriage_count_claim = extractCount(text, ["marriage", "married", "bea"]);
+  const broken_marriage_claim = extractCount(text, ["broken", "divorce", "separation", "vengese", "venge", "broke"]);
+  const foreign_entry_year_claim = extractYearNear(text, ["uk", "foreign", "abroad", "came", "arrived", "entry"]);
+  const settlement_year_claim = extractYearNear(text, ["settlement", "stabil", "stable", "base"]);
+  const job_count_claim = extractCount(text, ["job", "career", "work"]);
+  const relocation_year_claim = extractYearNear(text, ["move", "relocation", "house", "home", "city"]);
+
+  return {
+    raw_text: facts || null,
+    provided: !!(facts || question),
+    marriage_count_claim,
+    broken_marriage_claim,
+    foreign_entry_year_claim,
+    settlement_year_claim,
+    job_count_claim,
+    relocation_year_claim
+  };
+}
+
+function extractCount(text, keywords) {
+  const wordToNum = {
+    one: 1, two: 2, three: 3, four: 4, five: 5,
+    ekta: 1, duita: 2, tinta: 3, charta: 4, pachta: 5,
+    ek: 1, dui: 2, tin: 3, char: 4, pach: 5
+  };
+
+  if (!keywords.some((k) => text.includes(k))) return null;
+
+  for (const [word, num] of Object.entries(wordToNum)) {
+    if (text.includes(word)) return num;
+  }
+
+  const m = text.match(/\b([1-9])\b/);
+  return m ? Number(m[1]) : null;
+}
+
+function extractYearNear(text, keywords) {
+  if (!keywords.some((k) => text.includes(k))) return null;
+  const years = [...text.matchAll(/\b(19|20)\d{2}\b/g)].map((m) => Number(m[0]));
+  return years.length ? years[0] : null;
+}
+
+function buildDataQuality(mode, birth, knownFacts) {
+  const grade =
+    mode === "FULL_BIRTH_MODE"
+      ? "D3"
+      : mode === "NAME_MODE"
+      ? "D1"
+      : "D0";
+
+  return {
+    grade,
+    precision_mode:
+      grade === "D3" ? "HIGH" : grade === "D1" ? "RESTRICTED" : "LOW",
+    reality_anchors_present: !!(
+      knownFacts.marriage_count_claim ||
+      knownFacts.foreign_entry_year_claim ||
+      knownFacts.settlement_year_claim ||
+      knownFacts.job_count_claim ||
+      knownFacts.relocation_year_claim
+    )
+  };
+}
+
+/* =========================
+   DOMAIN REGISTRY / SCAN
+========================= */
+
+function scanPastEcosystem(ctx) {
+  const scanners = [
+    scanIdentityDomain,
+    scanFamilyDomain,
+    scanCommunicationDomain,
+    scanPropertyDomain,
+    scanChildrenDomain,
+    scanHealthDomain,
+    scanMarriageDomain,
+    scanBreakDomain,
+    scanFortuneDomain,
+    scanCareerDomain,
+    scanGainDomain,
+    scanForeignDomain,
+    scanMoneyDomain,
+    scanLegalDomain,
+    scanRelationshipDomain,
+    scanFailureDomain,
+    scanReputationDomain,
+    scanSpiritualDomain
   ];
 
-  return rawBands.filter((band) => band.end_age >= band.start_age);
+  return scanners.map((fn) => fn(ctx));
 }
 
-function buildMemoryAnchorScan(mode, dobReady, hasName, ageContext) {
+function domainSeed(ctx, code) {
+  const base = code.split("").reduce((s, ch) => s + ch.charCodeAt(0), 0);
+  const age = ctx.ageContext.age_years || 37;
+  const vib = ctx.vibration.number || 0;
+  const dobPart = ctx.birth.normalized_dob
+    ? ctx.birth.normalized_dob.split("-").reduce((s, x) => s + Number(x), 0)
+    : 0;
+  const modePart =
+    ctx.mode === "FULL_BIRTH_MODE" ? 101 : ctx.mode === "NAME_MODE" ? 47 : 13;
+
+  return base + age + vib + dobPart + modePart;
+}
+
+function makeDomain(domain_key, domain_label, events, density, residual, carryover) {
   return {
-    status: dobReady || hasName ? "ACTIVE" : "LOCKED",
-    anchor_method:
-      dobReady
-        ? "DOB_TIMELINE_ANCHORING"
-        : hasName
-        ? "NAME_RESONANCE_FALLBACK"
-        : "NO_ANCHOR",
-    likely_anchor_zones: dobReady
-      ? [
-          "relationships and separations",
-          "work or income fluctuations",
-          "house move / migration / relocation",
-          "authority pressure / paperwork / legal stress",
-          "family burden / emotional turning point"
-        ]
-      : hasName
-      ? [
-          "identity-linked memory clusters",
-          "repeating emotional patterns",
-          "social perception and naming resonance"
-        ]
-      : [],
-    age_recall_bias: ageContext
-      ? {
-          strongest_band: "RECENT_0_TO_3_YEARS",
-          secondary_band: "FORMATIVE_3_TO_7_YEARS",
-          note: "Human recall is usually strongest in recent and transitional periods"
-        }
-      : null
+    domain_key,
+    domain_label,
+    density,
+    residual_impact: residual,
+    present_carryover: carryover ? "YES" : "NO",
+    major_event_count: events.filter((e) => e.importance === "MAJOR").length,
+    minor_event_count: events.filter((e) => e.importance === "MINOR").length,
+    broken_event_count: events.filter((e) => e.status === "BROKEN").length,
+    active_event_count: events.filter((e) => e.status === "ACTIVE" || e.status === "STABILISING").length,
+    events
   };
 }
 
-function buildNameVibrationBlock(name, hasName, dobReady) {
-  if (!hasName) {
-    return {
-      status: "ABSENT",
-      precision_level: "NONE",
-      note: "Name not supplied"
-    };
-  }
-
-  const normalized = name.toUpperCase().replace(/\s+/g, " ").trim();
-  const firstChar = normalized.charAt(0) || null;
-  const letterCount = normalized.replace(/\s/g, "").length;
-
+function makeEvent({
+  domain,
+  event_number,
+  event_type,
+  age_band,
+  date_window,
+  trigger_phase,
+  status,
+  after_effect,
+  carryover_to_present = "NO",
+  importance = "MAJOR",
+  tags = []
+}) {
   return {
-    status: "ACTIVE",
-    precision_level: dobReady ? "SUPPORTIVE_ONLY" : "PRIMARY_FALLBACK_MODE",
-    normalized_name: normalized,
-    first_character_anchor: firstChar,
-    letter_count: letterCount,
-    note: dobReady
-      ? "Name vibration available as support layer"
-      : "Name vibration currently acting as fallback intake layer until DOB supplied"
+    domain,
+    event_number,
+    event_type,
+    age_band,
+    date_window,
+    trigger_phase,
+    status,
+    after_effect,
+    carryover_to_present,
+    importance,
+    tags
   };
 }
 
-function buildQuestionRouting(question, hasQuestion) {
-  if (!hasQuestion) {
+function makeAgeWindow(ctx, startAge, endAge) {
+  if (!ctx.birth.normalized_dob) {
     return {
-      status: "INACTIVE",
-      target_domain: "GENERAL_FORENSIC",
-      intent_type: "NONE",
-      route_reason: "No question supplied",
-      precision_lock: "OFF"
+      age_band: `${startAge}-${endAge}`,
+      date_window: `Approx age ${startAge}-${endAge}`
     };
   }
 
-  const q = question.toLowerCase();
-
-  let targetDomain = "GENERAL_FORENSIC";
-  let intentType = "OPEN_FORENSIC";
-
-  if (containsAny(q, ["love", "relationship", "marriage", "wife", "husband", "breakup", "partner"])) {
-    targetDomain = "RELATIONSHIP";
-    intentType = "RELATIONSHIP_FORENSIC";
-  } else if (containsAny(q, ["money", "income", "business", "job", "work", "debt", "payment"])) {
-    targetDomain = "MONEY_WORK";
-    intentType = "MONEY_FORENSIC";
-  } else if (containsAny(q, ["family", "home", "mother", "father", "brother", "sister", "child"])) {
-    targetDomain = "FAMILY";
-    intentType = "FAMILY_FORENSIC";
-  } else if (containsAny(q, ["case", "legal", "paperwork", "authority", "court", "visa", "document"])) {
-    targetDomain = "AUTHORITY_PAPERWORK";
-    intentType = "AUTHORITY_FORENSIC";
-  }
-
+  const birthYear = safeYearFromDob(ctx.birth.normalized_dob);
   return {
-    status: "ACTIVE",
-    target_domain: targetDomain,
-    intent_type: intentType,
-    route_reason: "Question language was mapped into a forensic domain",
-    precision_lock: "ON"
+    age_band: `${startAge}-${endAge}`,
+    date_window: `${birthYear + startAge}-${birthYear + endAge}`
   };
 }
 
-function containsAny(text, words) {
-  return words.some((word) => text.includes(word));
+function yearToAgeBand(ctx, year) {
+  const birthYear = safeYearFromDob(ctx.birth.normalized_dob);
+  if (!birthYear) return "UNKNOWN";
+  const a = year - birthYear;
+  return `${a}-${a + 1}`;
 }
 
-function buildEventDensityLogic({ mode, dobReady, reverseScanBands, hasQuestion, questionRouting }) {
-  if (!dobReady) {
-    return {
-      status: "LIMITED",
-      dominant_band: "NAME_ONLY_MODE",
-      secondary_band: null,
-      event_density_grade: "LOW_PRECISION",
-      recent_recall_strength: "MEDIUM_IF_USER_RECALLS",
-      deep_recall_strength: "LOW",
-      targeting_boost: hasQuestion ? "QUESTION_GUIDED_ONLY" : "NONE"
-    };
-  }
-
-  const dominantBand = reverseScanBands[0]?.label || "RECENT_0_TO_3_YEARS";
-  const secondaryBand = reverseScanBands[1]?.label || "FORMATIVE_3_TO_7_YEARS";
-
-  return {
-    status: "ACTIVE",
-    dominant_band: dominantBand,
-    secondary_band: secondaryBand,
-    event_density_grade: hasQuestion ? "TARGETED_HIGH" : "GENERAL_HIGH",
-    recent_recall_strength: "VERY_HIGH",
-    deep_recall_strength: "MEDIUM",
-    targeting_boost: hasQuestion ? questionRouting.target_domain : "GENERAL"
-  };
+function includesPrimary(ctx, x) {
+  return ctx.questionRouting.linked_domains.includes(x);
 }
 
-function buildEventSignalMap({ mode, dobReady, hasName, questionRouting }) {
-  if (!dobReady && !hasName) {
-    return {
-      status: "LOCKED",
-      dominant_signal_family: null,
-      signal_markers: []
-    };
+/* --- scanners --- */
+
+function scanIdentityDomain(ctx) {
+  const s = domainSeed(ctx, "IDENTITY");
+  const a1 = Math.max(16, (ctx.ageContext.age_years || 40) - 18);
+  const a2 = Math.max(24, (ctx.ageContext.age_years || 40) - 6);
+  const w1 = makeAgeWindow(ctx, a1, a1 + 2);
+  const w2 = makeAgeWindow(ctx, a2, a2 + 2);
+
+  const events = [
+    makeEvent({
+      domain: "Identity / Self / Direction",
+      event_number: 1,
+      event_type: "major self-reset phase",
+      age_band: w1.age_band,
+      date_window: w1.date_window,
+      trigger_phase: "identity restructuring",
+      status: "EXECUTED",
+      after_effect: "reshaped personal direction",
+      tags: ["identity", "reset"]
+    }),
+    makeEvent({
+      domain: "Identity / Self / Direction",
+      event_number: 2,
+      event_type: "directional rebuilding phase",
+      age_band: w2.age_band,
+      date_window: w2.date_window,
+      trigger_phase: "present direction carryover",
+      status: s % 2 === 0 ? "ACTIVE" : "STABILISING",
+      after_effect: "still influences current life decisions",
+      carryover_to_present: "YES",
+      tags: ["direction", "carryover"]
+    })
+  ];
+
+  return makeDomain("IDENTITY", "Identity / Self / Direction", events, "MED", "MED", true);
+}
+
+function scanFamilyDomain(ctx) {
+  const s = domainSeed(ctx, "FAMILY");
+  const a = Math.max(18, (ctx.ageContext.age_years || 40) - 14);
+  const w = makeAgeWindow(ctx, a, a + 3);
+
+  const events = [
+    makeEvent({
+      domain: "Family / Wealth / Speech",
+      event_number: 1,
+      event_type: "family responsibility or burden phase",
+      age_band: w.age_band,
+      date_window: w.date_window,
+      trigger_phase: "family pressure activation",
+      status: s % 3 === 0 ? "RESIDUAL" : "EXECUTED",
+      after_effect: "family-linked burden shaped later choices",
+      carryover_to_present: s % 3 === 0 ? "YES" : "NO",
+      tags: ["family", "burden"]
+    })
+  ];
+
+  return makeDomain("FAMILY", "Family / Wealth / Speech", events, "MED", "MED", s % 3 === 0);
+}
+
+function scanCommunicationDomain(ctx) {
+  const s = domainSeed(ctx, "COMM");
+  const a = Math.max(20, (ctx.ageContext.age_years || 40) - 10);
+  const w = makeAgeWindow(ctx, a, a + 1);
+
+  const events = [
+    makeEvent({
+      domain: "Communication / Effort / Siblings",
+      event_number: 1,
+      event_type: "document / message distortion phase",
+      age_band: w.age_band,
+      date_window: w.date_window,
+      trigger_phase: "communication conflict",
+      status: s % 2 === 0 ? "PARTIAL" : "EXECUTED",
+      after_effect: "created correction or delay loop",
+      tags: ["documents", "communication"]
+    })
+  ];
+
+  return makeDomain("COMMUNICATION", "Communication / Effort / Siblings", events, "MED", "LOW", false);
+}
+
+function scanPropertyDomain(ctx) {
+  const count = includesPrimary(ctx, "PROPERTY") || includesPrimary(ctx, "FOREIGN") ? 2 : 1;
+  const events = [];
+
+  for (let i = 0; i < count; i += 1) {
+    const a = Math.max(21, 24 + i * 7);
+    const w = makeAgeWindow(ctx, a, a + 2);
+    events.push(
+      makeEvent({
+        domain: "Home / Property / Residence",
+        event_number: i + 1,
+        event_type: i === 0 ? "home / residence shift" : "property stability or relocation phase",
+        age_band: w.age_band,
+        date_window: w.date_window,
+        trigger_phase: i === 0 ? "base movement" : "base re-establishment",
+        status: i === 0 ? "EXECUTED" : "STABILISING",
+        after_effect: i === 0 ? "changed living base" : "created stable or semi-stable base",
+        carryover_to_present: i === count - 1 ? "YES" : "NO",
+        tags: ["property", "residence", i === 0 ? "move" : "stability"]
+      })
+    );
   }
 
-  if (!dobReady && hasName) {
-    return {
-      status: "LIMITED",
-      dominant_signal_family: "IDENTITY_REPEAT",
-      signal_markers: [
-        "repeating emotional response",
-        "social naming resonance",
-        "identity-linked memory echo"
-      ]
-    };
+  return makeDomain("PROPERTY", "Home / Property / Residence", events, count > 1 ? "HIGH" : "MED", "MED", count > 1);
+}
+
+function scanChildrenDomain(ctx) {
+  const s = domainSeed(ctx, "CHILDREN");
+  const count = includesPrimary(ctx, "CHILDREN") ? 2 : 1;
+  const events = [];
+
+  for (let i = 0; i < count; i += 1) {
+    const a = Math.max(24, (ctx.ageContext.age_years || 40) - (12 - i * 4));
+    const w = makeAgeWindow(ctx, a, a + 2);
+    events.push(
+      makeEvent({
+        domain: "Love / Children / Creativity",
+        event_number: i + 1,
+        importance: i === 0 ? "MAJOR" : "MINOR",
+        event_type: i === 0 ? "major love / attachment event" : "children / family continuity event",
+        age_band: w.age_band,
+        date_window: w.date_window,
+        trigger_phase: i === 0 ? "emotional activation" : "continuation trigger",
+        status: i === 0 ? "EXECUTED" : s % 2 === 0 ? "ACTIVE" : "PARTIAL",
+        after_effect: i === 0 ? "left emotional memory" : "created continuing family effect",
+        carryover_to_present: i === 1 && s % 2 === 0 ? "YES" : "NO",
+        tags: i === 0 ? ["love"] : ["children"]
+      })
+    );
   }
 
-  const map = {
-    RELATIONSHIP: {
-      family: "BOND_SHIFT",
-      markers: ["distance", "miscommunication", "break", "emotional reversal", "attachment strain"]
+  return makeDomain("CHILDREN", "Love / Children / Creativity", events, count > 1 ? "HIGH" : "MED", "MED", events.some((e) => e.carryover_to_present === "YES"));
+}
+
+function scanHealthDomain(ctx) {
+  const s = domainSeed(ctx, "HEALTH");
+  const events = [];
+  const w1 = makeAgeWindow(ctx, Math.max(18, (ctx.ageContext.age_years || 40) - 15), Math.max(20, (ctx.ageContext.age_years || 40) - 13));
+
+  events.push(
+    makeEvent({
+      domain: "Health / Stress / Disease / Recovery",
+      event_number: 1,
+      event_type: "major stress / weakness phase",
+      age_band: w1.age_band,
+      date_window: w1.date_window,
+      trigger_phase: "health strain",
+      status: "EXECUTED",
+      after_effect: "left stamina or recovery imprint",
+      tags: ["health", "stress"]
+    })
+  );
+
+  if (s % 2 === 0 || includesPrimary(ctx, "HEALTH")) {
+    const w2 = makeAgeWindow(ctx, Math.max(26, (ctx.ageContext.age_years || 40) - 5), Math.max(27, (ctx.ageContext.age_years || 40) - 4));
+    events.push(
+      makeEvent({
+        domain: "Health / Stress / Disease / Recovery",
+        event_number: 2,
+        event_type: "recurring health / stress residue",
+        age_band: w2.age_band,
+        date_window: w2.date_window,
+        trigger_phase: "repeat vulnerability",
+        status: s % 4 === 0 ? "ACTIVE" : "RESIDUAL",
+        after_effect: "still influences present capacity",
+        carryover_to_present: "YES",
+        tags: ["health", "carryover", "repeat"]
+      })
+    );
+  }
+
+  return makeDomain("HEALTH", "Health / Stress / Disease / Recovery", events, events.length > 1 ? "HIGH" : "MED", "HIGH", events.some((e) => e.carryover_to_present === "YES"));
+}
+
+function scanMarriageDomain(ctx) {
+  const known = ctx.knownFacts;
+  let marriageCount = 1;
+
+  if (known.marriage_count_claim != null) {
+    marriageCount = known.marriage_count_claim;
+  } else if (ctx.mode === "FULL_BIRTH_MODE") {
+    marriageCount = inferMarriageCount(ctx);
+  } else if (ctx.mode === "NAME_MODE") {
+    marriageCount = 1 + (domainSeed(ctx, "MARRIAGE") % 2);
+  }
+
+  const brokenCount =
+    known.broken_marriage_claim != null
+      ? Math.min(known.broken_marriage_claim, Math.max(0, marriageCount - 1))
+      : Math.max(0, marriageCount - 1);
+
+  const events = [];
+  for (let i = 0; i < marriageCount; i += 1) {
+    const a = Math.max(19, 22 + i * 5);
+    const w = makeAgeWindow(ctx, a, a + 2);
+    const isBroken = i < brokenCount;
+    const isLast = i === marriageCount - 1;
+
+    events.push(
+      makeEvent({
+        domain: "Marriage / Partnership",
+        event_number: i + 1,
+        event_type: "marriage event",
+        age_band: w.age_band,
+        date_window: w.date_window,
+        trigger_phase: isBroken ? "formation then break" : "formation then continuation",
+        status: isBroken ? "BROKEN" : isLast ? "STABILISING" : "EXECUTED",
+        after_effect: isBroken ? "left marital residue" : "remains active in present structure",
+        carryover_to_present: !isBroken ? "YES" : "NO",
+        tags: ["marriage", isBroken ? "broken" : "active"]
+      })
+    );
+  }
+
+  return makeDomain(
+    "MARRIAGE",
+    "Marriage / Partnership",
+    events,
+    marriageCount >= 3 ? "EXTREME" : marriageCount === 2 ? "HIGH" : "MED",
+    marriageCount >= 2 ? "HIGH" : "MED",
+    events.some((e) => e.carryover_to_present === "YES")
+  );
+}
+
+function inferMarriageCount(ctx) {
+  const s = domainSeed(ctx, "MARRIAGE_COUNT");
+  const age = ctx.ageContext.age_years || 40;
+
+  if (age >= 42 && s % 5 === 0) return 3;
+  if (age >= 32 && s % 3 === 0) return 2;
+  return 1;
+}
+
+function scanBreakDomain(ctx) {
+  const s = domainSeed(ctx, "BREAK");
+  const count = s % 3 === 0 ? 2 : 1;
+  const events = [];
+
+  for (let i = 0; i < count; i += 1) {
+    const a = Math.max(20, (ctx.ageContext.age_years || 40) - (11 - i * 3));
+    const w = makeAgeWindow(ctx, a, a + 1);
+
+    events.push(
+      makeEvent({
+        domain: "Shock / Break / Hidden / Scandal",
+        event_number: i + 1,
+        event_type: i === 0 ? "sudden break phase" : "hidden obstruction phase",
+        age_band: w.age_band,
+        date_window: w.date_window,
+        trigger_phase: "shock / break activation",
+        status: i === 0 ? "BROKEN" : "RESIDUAL",
+        after_effect: "changed trust or route",
+        carryover_to_present: i === count - 1 ? "YES" : "NO",
+        tags: ["break", "obstruction"]
+      })
+    );
+  }
+
+  return makeDomain("BREAK", "Shock / Break / Hidden / Scandal", events, count > 1 ? "HIGH" : "MED", "HIGH", true);
+}
+
+function scanFortuneDomain(ctx) {
+  const s = domainSeed(ctx, "FORTUNE");
+  const w = makeAgeWindow(ctx, Math.max(18, (ctx.ageContext.age_years || 40) - 9), Math.max(20, (ctx.ageContext.age_years || 40) - 7));
+
+  const events = [
+    makeEvent({
+      domain: "Fortune / Father / Travel / Grace",
+      event_number: 1,
+      event_type: s % 2 === 0 ? "travel turning point" : "fortune support phase",
+      age_band: w.age_band,
+      date_window: w.date_window,
+      trigger_phase: "luck opening",
+      status: "EXECUTED",
+      after_effect: "shifted supportive pattern",
+      tags: ["fortune", "travel"]
+    })
+  ];
+
+  return makeDomain("FORTUNE", "Fortune / Father / Travel / Grace", events, "MED", "LOW", false);
+}
+
+function scanCareerDomain(ctx) {
+  const count =
+    ctx.knownFacts.job_count_claim != null
+      ? Math.max(1, ctx.knownFacts.job_count_claim)
+      : ctx.mode === "FULL_BIRTH_MODE"
+      ? 2 + (domainSeed(ctx, "CAREER") % 2)
+      : 2;
+
+  const events = [];
+
+  for (let i = 0; i < count; i += 1) {
+    const a = Math.max(18, 20 + i * 7);
+    const w = makeAgeWindow(ctx, a, a + 2);
+    const status =
+      i === count - 1
+        ? domainSeed(ctx, "CAREER_ACTIVE") % 2 === 0
+          ? "STABILISING"
+          : "ACTIVE"
+        : i % 2 === 0
+        ? "EXECUTED"
+        : "FAILED";
+
+    events.push(
+      makeEvent({
+        domain: "Career / Authority / Public Role",
+        event_number: i + 1,
+        event_type:
+          i === 0
+            ? "job / role start"
+            : i === count - 1
+            ? "current career phase"
+            : "career shift / break",
+        age_band: w.age_band,
+        date_window: w.date_window,
+        trigger_phase: i === 0 ? "entry" : "restructure",
+        status,
+        after_effect:
+          status === "FAILED"
+            ? "forced redirection"
+            : status === "ACTIVE" || status === "STABILISING"
+            ? "still shapes present career"
+            : "added career experience",
+        carryover_to_present:
+          status === "ACTIVE" || status === "STABILISING" ? "YES" : "NO",
+        tags: ["career", status.toLowerCase()]
+      })
+    );
+  }
+
+  return makeDomain("CAREER", "Career / Authority / Public Role", events, "HIGH", "HIGH", events.some((e) => e.carryover_to_present === "YES"));
+}
+
+function scanGainDomain(ctx) {
+  const w = makeAgeWindow(ctx, Math.max(24, (ctx.ageContext.age_years || 40) - 6), Math.max(26, (ctx.ageContext.age_years || 40) - 4));
+  const events = [
+    makeEvent({
+      domain: "Gain / Network / Achievement",
+      event_number: 1,
+      event_type: "gain or network support phase",
+      age_band: w.age_band,
+      date_window: w.date_window,
+      trigger_phase: "achievement cluster",
+      status: "EXECUTED",
+      after_effect: "opened gains or support channels",
+      tags: ["gain", "network"]
+    })
+  ];
+
+  return makeDomain("GAIN", "Gain / Network / Achievement", events, "MED", "LOW", false);
+}
+
+function scanForeignDomain(ctx) {
+  const known = ctx.knownFacts;
+  const events = [];
+
+  const entryYear = known.foreign_entry_year_claim || inferForeignEntryYear(ctx);
+  const settlementYear = known.settlement_year_claim || inferSettlementYear(ctx, entryYear);
+
+  events.push(
+    makeEvent({
+      domain: "Loss / Foreign / Isolation",
+      event_number: 1,
+      event_type: "foreign entry event",
+      age_band: yearToAgeBand(ctx, entryYear),
+      date_window: `${entryYear}-${entryYear}`,
+      trigger_phase: "physical movement / foreign entry",
+      status: "EXECUTED",
+      after_effect: "life shifted outside origin base",
+      tags: ["foreign", "entry"]
+    })
+  );
+
+  if (settlementYear && settlementYear > entryYear) {
+    events.push(
+      makeEvent({
+        domain: "Loss / Foreign / Isolation",
+        event_number: 2,
+        event_type: "foreign settlement / stability event",
+        age_band: yearToAgeBand(ctx, settlementYear),
+        date_window: `${settlementYear}-${settlementYear + 1}`,
+        trigger_phase: "settlement / base formation",
+        status: "STABILISING",
+        after_effect: "foreign base became more durable",
+        carryover_to_present: "YES",
+        tags: ["foreign", "settlement", "stability"]
+      })
+    );
+  }
+
+  return makeDomain("FOREIGN", "Loss / Foreign / Isolation", events, "HIGH", "HIGH", true);
+}
+
+function inferForeignEntryYear(ctx) {
+  const birthYear = safeYearFromDob(ctx.birth.normalized_dob) || 1985;
+  const foreignAge =
+    ctx.mode === "FULL_BIRTH_MODE"
+      ? 28 + (domainSeed(ctx, "FOREIGN") % 6)
+      : 27 + (domainSeed(ctx, "FOREIGN") % 7);
+  return birthYear + foreignAge;
+}
+
+function inferSettlementYear(ctx, entryYear) {
+  return entryYear + 4 + (domainSeed(ctx, "SETTLE") % 3);
+}
+
+function scanMoneyDomain(ctx) {
+  const s = domainSeed(ctx, "MONEY");
+  const w1 = makeAgeWindow(ctx, Math.max(20, (ctx.ageContext.age_years || 40) - 12), Math.max(22, (ctx.ageContext.age_years || 40) - 10));
+  const w2 = makeAgeWindow(ctx, Math.max(26, (ctx.ageContext.age_years || 40) - 4), Math.max(28, (ctx.ageContext.age_years || 40) - 2));
+
+  const events = [
+    makeEvent({
+      domain: "Money Flow / Cash / Debt Pattern",
+      event_number: 1,
+      event_type: "cash pressure / debt cycle",
+      age_band: w1.age_band,
+      date_window: w1.date_window,
+      trigger_phase: "financial compression",
+      status: s % 2 === 0 ? "EXECUTED" : "BROKEN",
+      after_effect: "money pattern shifted materially",
+      tags: ["money", "debt"]
+    }),
+    makeEvent({
+      domain: "Money Flow / Cash / Debt Pattern",
+      event_number: 2,
+      event_type: "income recovery / gain phase",
+      age_band: w2.age_band,
+      date_window: w2.date_window,
+      trigger_phase: "money recovery",
+      status: "STABILISING",
+      after_effect: "recovery improving but not fully settled",
+      carryover_to_present: "YES",
+      tags: ["money", "recovery", "carryover"]
+    })
+  ];
+
+  return makeDomain("MONEY", "Money Flow / Cash / Debt Pattern", events, "HIGH", "HIGH", true);
+}
+
+function scanLegalDomain(ctx) {
+  const s = domainSeed(ctx, "LEGAL");
+  const needed = includesPrimary(ctx, "LEGAL") || s % 3 === 0;
+  const events = [];
+
+  if (needed) {
+    const w = makeAgeWindow(ctx, Math.max(22, (ctx.ageContext.age_years || 40) - 7), Math.max(23, (ctx.ageContext.age_years || 40) - 6));
+    events.push(
+      makeEvent({
+        domain: "Legal / Authority / Penalty",
+        event_number: 1,
+        event_type: "authority / penalty / paperwork conflict",
+        age_band: w.age_band,
+        date_window: w.date_window,
+        trigger_phase: "authority pressure",
+        status: s % 2 === 0 ? "PARTIAL" : "EXECUTED",
+        after_effect: "forced correction or compliance",
+        tags: ["legal", "authority", "paperwork"]
+      })
+    );
+  }
+
+  return makeDomain("LEGAL", "Legal / Authority / Penalty", events, needed ? "MED" : "LOW", needed ? "MED" : "LOW", false);
+}
+
+function scanRelationshipDomain(ctx) {
+  const s = domainSeed(ctx, "RELATIONSHIP");
+  const w = makeAgeWindow(ctx, Math.max(19, (ctx.ageContext.age_years || 40) - 13), Math.max(21, (ctx.ageContext.age_years || 40) - 11));
+  const events = [
+    makeEvent({
+      domain: "Relationship Complexity",
+      event_number: 1,
+      event_type: "hidden / unstable relational loop",
+      age_band: w.age_band,
+      date_window: w.date_window,
+      trigger_phase: "emotional complexity",
+      status: s % 2 === 0 ? "BROKEN" : "RESIDUAL",
+      after_effect: "left comparison pattern and emotional residue",
+      carryover_to_present: "YES",
+      tags: ["relationship", "complexity", "residue"]
+    })
+  ];
+
+  return makeDomain("RELATIONSHIP", "Relationship Complexity", events, "MED", "HIGH", true);
+}
+
+function scanFailureDomain(ctx) {
+  const w = makeAgeWindow(ctx, Math.max(20, (ctx.ageContext.age_years || 40) - 9), Math.max(21, (ctx.ageContext.age_years || 40) - 8));
+  const events = [
+    makeEvent({
+      domain: "Event Failure / Near-Success Collapse",
+      event_number: 1,
+      event_type: "started but failed event",
+      age_band: w.age_band,
+      date_window: w.date_window,
+      trigger_phase: "execution failure",
+      status: "FAILED",
+      after_effect: "created caution and delay tendency",
+      carryover_to_present: "YES",
+      tags: ["failure", "collapse", "carryover"]
+    })
+  ];
+
+  return makeDomain("FAILURE", "Event Failure / Near-Success Collapse", events, "MED", "MED", true);
+}
+
+function scanReputationDomain(ctx) {
+  const s = domainSeed(ctx, "REPUTATION");
+  const w = makeAgeWindow(ctx, Math.max(24, (ctx.ageContext.age_years || 40) - 6), Math.max(25, (ctx.ageContext.age_years || 40) - 5));
+  const events = [
+    makeEvent({
+      domain: "Reputation / Social Image",
+      event_number: 1,
+      event_type: s % 2 === 0 ? "name / respect challenge" : "visibility / reputation rise",
+      age_band: w.age_band,
+      date_window: w.date_window,
+      trigger_phase: "public exposure phase",
+      status: "EXECUTED",
+      after_effect: "shifted social image pattern",
+      tags: ["reputation", "public-image"]
+    })
+  ];
+
+  return makeDomain("REPUTATION", "Reputation / Social Image", events, "MED", "LOW", false);
+}
+
+function scanSpiritualDomain(ctx) {
+  const w = makeAgeWindow(ctx, Math.max(22, (ctx.ageContext.age_years || 40) - 5), Math.max(24, (ctx.ageContext.age_years || 40) - 3));
+  const events = [
+    makeEvent({
+      domain: "Spiritual / Inner Turning",
+      event_number: 1,
+      event_type: "inner correction / spiritual turning phase",
+      age_band: w.age_band,
+      date_window: w.date_window,
+      trigger_phase: "withdrawal and correction",
+      status: "RESIDUAL",
+      after_effect: "still affects patience and inner judgement",
+      carryover_to_present: "YES",
+      tags: ["spiritual", "inner", "carryover"]
+    })
+  ];
+
+  return makeDomain("SPIRITUAL", "Spiritual / Inner Turning", events, "MED", "MED", true);
+}
+
+/* =========================
+   AGGREGATION
+========================= */
+
+function buildEventSummary(domainResults) {
+  const totals = domainResults.reduce(
+    (acc, d) => {
+      acc.total_major_events += d.major_event_count;
+      acc.total_minor_events += d.minor_event_count;
+      acc.total_broken_events += d.broken_event_count;
+      acc.total_active_events += d.active_event_count;
+      return acc;
     },
-    MONEY_WORK: {
-      family: "MONEY_PRESSURE",
-      markers: ["income fluctuation", "deal slowdown", "payment delay", "work pressure", "financial blockage"]
-    },
-    FAMILY: {
-      family: "HOME_BURDEN",
-      markers: ["family pressure", "household strain", "responsibility load", "home shift", "emotional duty"]
-    },
-    AUTHORITY_PAPERWORK: {
-      family: "AUTHORITY_STRESS",
-      markers: ["document burden", "legal friction", "compliance stress", "paperwork delay", "official pressure"]
-    },
-    GENERAL_FORENSIC: {
-      family: "RECENT_PRESSURE_CLUSTER",
-      markers: ["stress peak", "transition point", "burden cycle", "communication issue", "directional shift"]
+    {
+      total_major_events: 0,
+      total_minor_events: 0,
+      total_broken_events: 0,
+      total_active_events: 0
     }
-  };
+  );
 
-  const selected = map[questionRouting.target_domain] || map.GENERAL_FORENSIC;
+  const marriage = domainResults.find((d) => d.domain_key === "MARRIAGE");
+  const foreign = domainResults.find((d) => d.domain_key === "FOREIGN");
+  const career = domainResults.find((d) => d.domain_key === "CAREER");
+  const money = domainResults.find((d) => d.domain_key === "MONEY");
+  const health = domainResults.find((d) => d.domain_key === "HEALTH");
 
   return {
-    status: "ACTIVE",
-    dominant_signal_family: selected.family,
-    signal_markers: selected.markers
+    ...totals,
+    marriage_count: marriage ? marriage.events.filter((e) => e.event_type.includes("marriage")).length : 0,
+    broken_marriage_count: marriage ? marriage.events.filter((e) => e.status === "BROKEN").length : 0,
+    current_marriage_status: marriage ? (marriage.events[marriage.events.length - 1]?.status || "UNKNOWN") : "UNKNOWN",
+    foreign_event_count: foreign ? foreign.major_event_count : 0,
+    foreign_entry_year: foreign?.events?.[0]?.date_window || null,
+    settlement_window: foreign?.events?.[1]?.date_window || null,
+    career_major_count: career ? career.major_event_count : 0,
+    money_event_count: money ? money.major_event_count : 0,
+    health_event_count: health ? health.major_event_count : 0
   };
 }
 
-function buildYearBandNarrowing({ dobReady, ageContext, eventDensityLogic }) {
-  if (!dobReady || !ageContext) {
-    return {
-      status: "LIMITED",
-      narrowed_window_label: "UNAVAILABLE_WITHOUT_DOB",
-      approximate_years_back: null,
-      note: "Year narrowing needs valid DOB"
-    };
-  }
+function buildMasterTimeline(domainResults) {
+  const out = [];
+  domainResults.forEach((d) => {
+    d.events.forEach((e) => {
+      out.push({
+        domain: d.domain_label,
+        event_number: e.event_number,
+        event_type: e.event_type,
+        age_band: e.age_band,
+        date_window: e.date_window,
+        status: e.status,
+        carryover_to_present: e.carryover_to_present
+      });
+    });
+  });
 
-  const age = ageContext.approximate_age_years;
-  let yearsBack = [0, 3];
+  return out.sort((a, b) => {
+    const aa = Number(String(a.age_band).split("-")[0]) || 0;
+    const bb = Number(String(b.age_band).split("-")[0]) || 0;
+    return aa - bb;
+  });
+}
 
-  if (eventDensityLogic.dominant_band === "FORMATIVE_3_TO_7_YEARS") {
-    yearsBack = [3, 7];
-  } else if (eventDensityLogic.dominant_band === "MID_MEMORY_7_TO_12_YEARS") {
-    yearsBack = [7, 12];
-  } else if (eventDensityLogic.dominant_band === "DEEP_MEMORY_12_TO_20_YEARS") {
-    yearsBack = [12, 20];
-  }
+function buildCarryover(domainResults) {
+  const carryover_domains = domainResults
+    .filter((d) => d.present_carryover === "YES")
+    .map((d) => ({
+      domain: d.domain_label,
+      residual_impact: d.residual_impact,
+      active_residue_count: d.events.filter((e) => e.carryover_to_present === "YES").length
+    }));
 
   return {
-    status: "ACTIVE",
-    narrowed_window_label: eventDensityLogic.dominant_band,
-    approximate_years_back: {
-      from: yearsBack[0],
-      to: yearsBack[1]
-    },
-    approximate_age_window: {
-      start_age: Math.max(age - yearsBack[1], 0),
-      end_age: Math.max(age - yearsBack[0], 0)
-    },
-    note: "This is a narrowed forensic recall band, not an exact event date"
+    present_carryover_detected: carryover_domains.length > 0,
+    carryover_domains
   };
 }
 
-function buildAnchorConvergence({ dobReady, hasName, questionRouting, eventSignalMap, yearBandNarrowing }) {
-  if (!dobReady && !hasName) {
-    return {
-      status: "LOCKED",
-      convergence_grade: "NONE",
-      anchor_count: 0
-    };
+function buildValidation(domainResults, knownFacts) {
+  const marriage = domainResults.find((d) => d.domain_key === "MARRIAGE");
+  const foreign = domainResults.find((d) => d.domain_key === "FOREIGN");
+  const career = domainResults.find((d) => d.domain_key === "CAREER");
+
+  let marriage_fact_match = "NOT_PROVIDED";
+  if (knownFacts.marriage_count_claim != null) {
+    const predicted = marriage
+      ? marriage.events.filter((e) => e.event_type.includes("marriage")).length
+      : 0;
+    marriage_fact_match =
+      predicted === knownFacts.marriage_count_claim ? "EXACT" : "CONFLICT";
   }
 
-  let anchorCount = 1;
-  if (hasName) anchorCount += 1;
-  if (dobReady) anchorCount += 2;
-  if (questionRouting.status === "ACTIVE") anchorCount += 1;
-  if (eventSignalMap.status === "ACTIVE") anchorCount += 1;
-  if (yearBandNarrowing.status === "ACTIVE") anchorCount += 1;
+  let foreign_fact_match = "NOT_PROVIDED";
+  if (knownFacts.foreign_entry_year_claim != null && foreign?.events?.[0]) {
+    const year = Number(String(foreign.events[0].date_window).slice(0, 4));
+    foreign_fact_match =
+      year === knownFacts.foreign_entry_year_claim ? "EXACT" : "CONFLICT";
+  }
 
-  let convergenceGrade = "LOW";
-  if (anchorCount >= 5) convergenceGrade = "HIGH";
-  else if (anchorCount >= 3) convergenceGrade = "MEDIUM";
+  let career_fact_match = "NOT_PROVIDED";
+  if (knownFacts.job_count_claim != null) {
+    const predicted = career ? career.events.length : 0;
+    career_fact_match =
+      predicted === knownFacts.job_count_claim ? "EXACT" : "PARTIAL";
+  }
+
+  const overall_validation =
+    [marriage_fact_match, foreign_fact_match].includes("CONFLICT")
+      ? "PARTIAL_CONFLICT"
+      : [marriage_fact_match, foreign_fact_match, career_fact_match].includes("EXACT")
+      ? "SUPPORTED"
+      : "NOT_PROVIDED";
 
   return {
-    status: "ACTIVE",
-    convergence_grade: convergenceGrade,
-    anchor_count: anchorCount,
-    note: "More converging anchors usually means stronger forensic readability"
+    reality_validation_active: knownFacts.provided,
+    marriage_fact_match,
+    foreign_fact_match,
+    career_fact_match,
+    overall_validation
   };
 }
 
-function buildTimelineTruthExtraction({
-  dobReady,
-  hasName,
-  mode,
-  questionRouting,
-  eventDensityLogic,
-  eventSignalMap,
-  anchorConvergence
-}) {
-  if (!dobReady && !hasName) {
-    return {
-      status: "LOCKED",
-      dominant_truth_zone: null,
-      secondary_truth_zone: null,
-      pattern_statement: "No forensic extraction possible without basic intake"
-    };
-  }
+function buildConfidence({ mode, dataQuality, domainResults, validation, knownFacts }) {
+  let confidence_score = 50;
 
-  if (!dobReady && hasName) {
-    return {
-      status: "LIMITED",
-      dominant_truth_zone: "IDENTITY_AND_REPEAT_PATTERN",
-      secondary_truth_zone: "SOCIAL_PERCEPTION_AND_EMOTIONAL_REPEAT",
-      pattern_statement:
-        "Name fallback suggests identity-linked repeating emotional or social memory patterns, but exact timeline truth remains limited without DOB",
-      convergence_grade: anchorConvergence.convergence_grade
-    };
-  }
+  if (mode === "FULL_BIRTH_MODE") confidence_score += 20;
+  else if (mode === "NAME_MODE") confidence_score += 8;
 
-  const map = {
-    RELATIONSHIP: {
-      dominant: "RELATIONSHIP_TENSION_OR_SHIFT",
-      secondary: "EMOTIONAL_BOND_CHANGE"
-    },
-    MONEY_WORK: {
-      dominant: "MONEY_PRESSURE_OR_WORK_SHIFT",
-      secondary: "NEGOTIATION_OR_PAYMENT_BLOCK"
-    },
-    FAMILY: {
-      dominant: "FAMILY_BURDEN_OR_HOME_SHIFT",
-      secondary: "EMOTIONAL_RESPONSIBILITY_FIELD"
-    },
-    AUTHORITY_PAPERWORK: {
-      dominant: "AUTHORITY_PRESSURE_OR_DOCUMENT_STRESS",
-      secondary: "DELAY_OR_COMPLIANCE_LOAD"
-    },
-    GENERAL_FORENSIC: {
-      dominant: "RECENT_LIFE_PRESSURE_CLUSTER",
-      secondary: "TRANSITIONAL_MEMORY_ANCHOR"
-    }
-  };
+  if (dataQuality.grade === "D3") confidence_score += 10;
+  if (dataQuality.reality_anchors_present) confidence_score += 6;
+  if (validation.overall_validation === "SUPPORTED") confidence_score += 8;
+  if (validation.overall_validation === "PARTIAL_CONFLICT") confidence_score -= 10;
 
-  const selected = map[questionRouting.target_domain] || map.GENERAL_FORENSIC;
+  const strongDomains = domainResults.filter(
+    (d) => d.density === "HIGH" || d.density === "EXTREME"
+  ).length;
+
+  confidence_score += Math.min(8, strongDomains);
+
+  const confidence_level =
+    confidence_score >= 85
+      ? "HIGH"
+      : confidence_score >= 70
+      ? "MEDIUM_HIGH"
+      : confidence_score >= 55
+      ? "MEDIUM"
+      : "LOW";
 
   return {
-    status: "ACTIVE",
-    dominant_truth_zone: selected.dominant,
-    secondary_truth_zone: selected.secondary,
-    dominant_signal_family: eventSignalMap.dominant_signal_family,
-    pattern_statement:
-      mode === "HYBRID_MODE"
-        ? `DOB + name indicate that the strongest recoverable truth zone is ${selected.dominant}, supported by ${selected.secondary} and signal family ${eventSignalMap.dominant_signal_family}`
-        : `DOB-anchored scan suggests the strongest recoverable truth zone is ${selected.dominant}, supported by ${selected.secondary} and signal family ${eventSignalMap.dominant_signal_family}`,
-    density_alignment: eventDensityLogic.dominant_band,
-    convergence_grade: anchorConvergence.convergence_grade
+    confidence_score,
+    confidence_level,
+    reasons: [
+      `Mode: ${mode}`,
+      `Data quality: ${dataQuality.grade}`,
+      `Reality anchors: ${dataQuality.reality_anchors_present ? "YES" : "NO"}`,
+      `Validation: ${validation.overall_validation}`,
+      `Strong domains: ${strongDomains}`
+    ]
   };
 }
 
-function buildContradictionFilter({
-  mode,
-  dobReady,
-  hasName,
-  questionRouting,
-  eventSignalMap,
-  timelineTruthExtraction
-}) {
-  if (mode === "NO_INPUT") {
-    return {
-      status: "ACTIVE",
-      contradiction_found: true,
-      severity: "HIGH",
-      note: "No usable forensic intake"
-    };
-  }
-
-  if (!dobReady && hasName) {
-    return {
-      status: "ACTIVE",
-      contradiction_found: false,
-      severity: "LOW",
-      note: "Name-only mode is limited but internally coherent"
-    };
-  }
-
-  const mismatch =
-    !questionRouting ||
-    !eventSignalMap ||
-    !timelineTruthExtraction ||
-    !eventSignalMap.dominant_signal_family ||
-    !timelineTruthExtraction.dominant_truth_zone;
+function buildReadableSummary({ mode, questionRouting, eventSummary, domainResults, carryover, confidence }) {
+  const strongest_domains = domainResults
+    .slice()
+    .sort((a, b) => b.major_event_count - a.major_event_count)
+    .slice(0, 4)
+    .map((d) => d.domain_label);
 
   return {
-    status: "ACTIVE",
-    contradiction_found: mismatch,
-    severity: mismatch ? "MEDIUM" : "NONE",
-    note: mismatch
-      ? "Some forensic layers did not align cleanly"
-      : "Question route, signal map, and truth extraction are aligned"
+    mode,
+    dominant_domain: questionRouting.primary_domain,
+    strongest_domains,
+    summary:
+      `Past scan completed in ${mode}. ` +
+      `Primary domain: ${questionRouting.primary_domain}. ` +
+      `Strongest domains: ${strongest_domains.join(", ")}. ` +
+      `Major events: ${eventSummary.total_major_events}. ` +
+      `Broken events: ${eventSummary.total_broken_events}. ` +
+      `Marriage count: ${eventSummary.marriage_count}. ` +
+      `Current carryover: ${carryover.present_carryover_detected ? "YES" : "NO"}. ` +
+      `Confidence: ${confidence.confidence_level}.`
   };
 }
 
-function buildMultiEventDetection({
-  dobReady,
-  hasName,
-  eventDensityLogic,
-  eventSignalMap,
-  anchorConvergence,
-  questionRouting
-}) {
-  if (!dobReady && !hasName) {
-    return {
-      status: "LOCKED",
-      event_shape: "UNDETERMINED",
-      event_count_bias: "NONE"
-    };
-  }
-
-  if (!dobReady && hasName) {
-    return {
-      status: "LIMITED",
-      event_shape: "REPEATING_PATTERN",
-      event_count_bias: "MULTIPLE_LIGHT",
-      note: "Name-only fallback is better at detecting repeats than exact singular events"
-    };
-  }
-
-  let shape = "SINGLE_DOMINANT_EVENT";
-  let bias = "SINGLE_STRONG";
-
-  if (
-    eventDensityLogic.dominant_band === "RECENT_0_TO_3_YEARS" &&
-    anchorConvergence.convergence_grade === "HIGH"
-  ) {
-    shape = "SINGLE_DOMINANT_EVENT";
-    bias = "SINGLE_STRONG";
-  } else if (questionRouting.status === "ACTIVE") {
-    shape = "QUESTION_CLUSTER";
-    bias = "MULTIPLE_RELATED";
-  } else if (eventSignalMap.signal_markers.length >= 5) {
-    shape = "PRESSURE_CLUSTER";
-    bias = "MULTIPLE_RELATED";
-  }
+function buildLokkotha({ questionRouting, eventSummary, carryover, domainResults }) {
+  const top = domainResults
+    .slice()
+    .sort((a, b) => b.major_event_count - a.major_event_count)[0];
 
   return {
-    status: "ACTIVE",
-    event_shape: shape,
-    event_count_bias: bias,
-    note: "This indicates whether the forensic pattern looks like one main event or a cluster"
+    text:
+      `${questionRouting.primary_domain.toLowerCase()}-এর জবাব একা আসে না; ` +
+      `${top ? top.domain_label.toLowerCase() : "পুরোনো জীবনের পথ"} এখনও তার ছাপ ধরে রেখেছে। ` +
+      `বড় ঘটনা ছিল ${eventSummary.total_major_events}, ভাঙন ছিল ${eventSummary.total_broken_events}, ` +
+      `আর তার ঢেউ ${carryover.present_carryover_detected ? "এখনও চলছে" : "ধীরে বসেছে"}.`
   };
 }
 
-function buildForensicConfidence({
-  mode,
-  dobReady,
-  hasName,
-  hasQuestion,
-  contradictionFilter,
-  anchorConvergence,
-  multiEventDetection
-}) {
-  let score = 20;
-  const reasons = [];
-
-  if (dobReady) {
-    score += 45;
-    reasons.push("Valid DOB supplied");
-  }
-
-  if (hasName) {
-    score += 15;
-    reasons.push("Name supplied");
-  }
-
-  if (hasQuestion) {
-    score += 10;
-    reasons.push("Question context supplied");
-  }
-
-  if (anchorConvergence.convergence_grade === "HIGH") {
-    score += 10;
-    reasons.push("Anchor convergence high");
-  } else if (anchorConvergence.convergence_grade === "MEDIUM") {
-    score += 5;
-    reasons.push("Anchor convergence medium");
-  }
-
-  if (contradictionFilter.contradiction_found) {
-    score -= 15;
-    reasons.push("Contradiction detected");
-  }
-
-  if (multiEventDetection.event_shape === "QUESTION_CLUSTER") {
-    score += 3;
-    reasons.push("Question-locked clustering active");
-  }
-
-  if (mode === "NO_INPUT") {
-    reasons.push("No usable forensic intake");
-  }
-
-  if (!dobReady && hasName) {
-    reasons.push("Name-only fallback reduces precision");
-  }
-
-  if (score < 0) score = 0;
-  if (score > 100) score = 100;
-
-  let band = "LOW";
-  if (score >= 75) band = "HIGH";
-  else if (score >= 45) band = "MEDIUM";
-
+function buildVerdict({ questionRouting, eventSummary, carryover, confidence }) {
   return {
-    confidence_score: score,
-    confidence_band: band,
-    reasons
-  };
-}
-
-function buildDomainReadiness(mode, dobReady, hasName) {
-  return {
-    relationship_domain: dobReady || hasName ? "READY" : "WAITING_INPUT",
-    work_domain: dobReady || hasName ? "READY" : "WAITING_INPUT",
-    money_domain: dobReady || hasName ? "READY" : "WAITING_INPUT",
-    authority_domain: dobReady || hasName ? "READY" : "WAITING_INPUT",
-    family_domain: dobReady || hasName ? "READY" : "WAITING_INPUT",
-    root_cause_forensics: dobReady ? "DOB_READY" : hasName ? "NAME_LIMITED" : "NOT_READY",
-    mode_summary: mode
-  };
-}
-
-function buildForensicSummary({
-  mode,
-  dobReady,
-  hasName,
-  hasQuestion,
-  ageContext,
-  questionRouting,
-  eventDensityLogic,
-  eventSignalMap,
-  yearBandNarrowing,
-  timelineTruthExtraction,
-  anchorConvergence,
-  contradictionFilter,
-  multiEventDetection,
-  forensicConfidence
-}) {
-  let readableSummary = "";
-
-  if (mode === "NO_INPUT") {
-    readableSummary =
-      "No forensic scan can start yet because the system has not received a usable name or date of birth.";
-  } else if (!dobReady && hasName) {
-    readableSummary =
-      "A name-only fallback scan is active. The system can detect identity-linked repeating patterns and emotional/social memory clusters, but full timeline accuracy remains limited until a valid DOB is supplied.";
-  } else {
-    readableSummary =
-      `A DOB-anchored reverse scan is active. The strongest recall pressure is concentrated in ${eventDensityLogic.dominant_band}, with secondary support from ${eventDensityLogic.secondary_band}. ` +
-      `The dominant signal family is ${eventSignalMap.dominant_signal_family}, and the clearest truth zone is ${timelineTruthExtraction.dominant_truth_zone}. ` +
-      `Approximate narrowing currently points to ${yearBandNarrowing.narrowed_window_label}. ` +
-      `Event structure currently reads as ${multiEventDetection.event_shape}.`;
-  }
-
-  return {
-    status: "ACTIVE",
-    readability_grade: "HIGH",
-    client_readable_summary: readableSummary,
-    confidence_band: forensicConfidence.confidence_band,
-    lifecycle_stage: ageContext ? ageContext.lifecycle_stage : null,
-    question_guided: hasQuestion,
-    anchor_convergence: anchorConvergence.convergence_grade,
-    contradiction_status: contradictionFilter.contradiction_found ? "PRESENT" : "CLEAR",
-    routed_domain: questionRouting.target_domain
-  };
-}
-
-function buildLokkothaSummary({
-  mode,
-  dobReady,
-  hasName,
-  questionRouting,
-  timelineTruthExtraction,
-  eventSignalMap,
-  multiEventDetection
-}) {
-  if (mode === "NO_INPUT") {
-    return {
-      status: "ACTIVE",
-      style: "LOKKOTHA",
-      text: "নামও নেই, জন্মের তারিখও নেই—ধোঁয়ার ভিতর ছায়া ধরা যায়, মানুষ ধরা যায় না।"
-    };
-  }
-
-  if (!dobReady && hasName) {
-    return {
-      status: "ACTIVE",
-      style: "LOKKOTHA",
-      text: "নামের ঢেউ আছে, কিন্তু ঘাটের দাগ পুরো খোলা নয়; নাম পথ দেখায়, জন্মতারিখ দরজা খুলে।"
-    };
-  }
-
-  const clusterTag =
-    multiEventDetection.event_shape === "SINGLE_DOMINANT_EVENT"
-      ? "একটা বড় ঢেউ"
-      : multiEventDetection.event_shape === "QUESTION_CLUSTER"
-      ? "একই স্রোতের কয়েকটা ঢেউ"
-      : "চাপের ঝাঁক";
-
-  const map = {
-    RELATIONSHIP: `${clusterTag} আগে কথার সুঁতোয় লাগে, পরে মনের বাঁধনে ফাটল তোলে।`,
-    MONEY_WORK: `${clusterTag} আগে লেনদেনের টেবিলে থামে, পরে রোজগারের হাঁড়িতে ঠান্ডা নামে।`,
-    FAMILY: `${clusterTag} আগে বুকের ভিতরে ভার ফেলে, পরে ঘরের চালায় তার শব্দ ওঠে।`,
-    AUTHORITY_PAPERWORK: `${clusterTag} আগে কাগজে কাঁটা ফোটায়, পরে পথের গতি আটকে দেয়।`,
-    GENERAL_FORENSIC: `${clusterTag} আজও মনে লাগে, মানে তার পাথর আগেই জলে পড়েছিল।`
-  };
-
-  return {
-    status: "ACTIVE",
-    style: "LOKKOTHA",
-    text: map[questionRouting.target_domain] || map.GENERAL_FORENSIC,
-    dominant_truth_zone: timelineTruthExtraction.dominant_truth_zone,
-    signal_family: eventSignalMap.dominant_signal_family
-  };
-}
-
-function buildForensicVerdictBlock({
-  mode,
-  dobReady,
-  hasName,
-  hasQuestion,
-  questionRouting,
-  contradictionFilter,
-  multiEventDetection,
-  forensicConfidence,
-  timelineTruthExtraction
-}) {
-  if (mode === "NO_INPUT") {
-    return {
-      status: "WAITING",
-      verdict_type: "NO_INTAKE",
-      plain_verdict: "No forensic truth can be judged yet",
-      question_lock_status: "OFF"
-    };
-  }
-
-  if (!dobReady && hasName) {
-    return {
-      status: "LIMITED",
-      verdict_type: "NAME_FALLBACK_ONLY",
-      plain_verdict: "A repeating pattern is likely, but exact past-event truth remains limited without DOB",
-      question_lock_status: hasQuestion ? "SOFT" : "OFF"
-    };
-  }
-
-  return {
-    status: "ACTIVE",
-    verdict_type:
-      multiEventDetection.event_shape === "SINGLE_DOMINANT_EVENT"
-        ? "SINGLE_EVENT_DOMINANT"
-        : multiEventDetection.event_shape === "QUESTION_CLUSTER"
-        ? "QUESTION_LINKED_EVENT_CLUSTER"
-        : "PRESSURE_CLUSTER_DOMINANT",
-    plain_verdict:
-      contradictionFilter.contradiction_found
-        ? "A past pattern is visible, but some internal signals are not fully aligned"
-        : `The strongest past truth appears in ${timelineTruthExtraction.dominant_truth_zone}, with ${multiEventDetection.event_shape} structure`,
-    question_lock_status: hasQuestion ? "HARD" : "GENERAL",
-    confidence_band: forensicConfidence.confidence_band
+    forensic_direction:
+      `${questionRouting.primary_domain} past scan shows ` +
+      `${eventSummary.total_major_events} major events, ` +
+      `${eventSummary.total_broken_events} broken phases, and ` +
+      `${carryover.present_carryover_detected ? "active residue" : "limited residue"} ` +
+      `with ${confidence.confidence_level} confidence.`,
+    confidence: confidence.confidence_level
   };
 }
 
 function buildProjectPasteBlock({
+  input,
   mode,
-  rawName,
-  normalizedDob,
-  forensicConfidence,
-  eventDensityLogic,
-  eventSignalMap,
-  yearBandNarrowing,
-  timelineTruthExtraction,
-  contradictionFilter,
-  multiEventDetection,
-  forensicVerdictBlock,
-  forensicSummary,
-  lokkothaSummary,
-  verdict
+  dataQuality,
+  questionRouting,
+  eventSummary,
+  domainResults,
+  timeline,
+  carryover,
+  validation,
+  confidence,
+  verdict,
+  lokkotha
 }) {
-  const lines = [];
+  const topDomains = domainResults
+    .slice()
+    .sort((a, b) => b.major_event_count - a.major_event_count)
+    .slice(0, 4)
+    .map((d) => `${d.domain_label} (${d.major_event_count})`);
 
-  lines.push("PAST FORENSIC INTAKE");
-  lines.push(`Mode: ${mode}`);
-  lines.push(`Name: ${rawName || "N/A"}`);
-  lines.push(`DOB: ${normalizedDob || "N/A"}`);
-  lines.push(`Confidence Band: ${forensicConfidence.confidence_band}`);
-  lines.push(`Confidence Score: ${forensicConfidence.confidence_score}`);
+  const keyTimeline = timeline.slice(0, 8).map(
+    (t) => `${t.domain} | #${t.event_number} | ${t.date_window} | ${t.status}`
+  );
 
-  lines.push(`Dominant Recall Band: ${eventDensityLogic.dominant_band || "N/A"}`);
-  lines.push(`Secondary Recall Band: ${eventDensityLogic.secondary_band || "N/A"}`);
-  lines.push(`Event Signal Family: ${eventSignalMap.dominant_signal_family || "N/A"}`);
-  lines.push(`Approximate Narrowed Window: ${yearBandNarrowing.narrowed_window_label || "N/A"}`);
-
-  lines.push(`Dominant Truth Zone: ${timelineTruthExtraction.dominant_truth_zone || "N/A"}`);
-  lines.push(`Secondary Truth Zone: ${timelineTruthExtraction.secondary_truth_zone || "N/A"}`);
-  lines.push(`Event Shape: ${multiEventDetection.event_shape || "N/A"}`);
-  lines.push(`Contradiction Status: ${contradictionFilter.contradiction_found ? "PRESENT" : "CLEAR"}`);
-
-  lines.push("Readable Summary:");
-  lines.push(forensicSummary.client_readable_summary);
-
-  lines.push("Lokkotha Summary:");
-  lines.push(lokkothaSummary.text);
-
-  lines.push("Forensic Verdict:");
-  lines.push(forensicVerdictBlock.plain_verdict);
-
-  lines.push("Final Practical Verdict:");
-  lines.push(verdict.practical_note);
-
-  lines.push("PAST FORENSIC BLOCK END");
-
-  return lines.join("\n");
+  return [
+    "PAST FORENSIC PROJECT BLOCK",
+    `Subject: ${input.name || "UNKNOWN"}`,
+    `Mode: ${mode}`,
+    `Data Quality: ${dataQuality.grade}`,
+    `Primary Domain: ${questionRouting.primary_domain}`,
+    `Total Major Events: ${eventSummary.total_major_events}`,
+    `Total Broken Events: ${eventSummary.total_broken_events}`,
+    `Marriage Count: ${eventSummary.marriage_count}`,
+    `Broken Marriage Count: ${eventSummary.broken_marriage_count}`,
+    `Current Marriage Status: ${eventSummary.current_marriage_status}`,
+    `Foreign Event Count: ${eventSummary.foreign_event_count}`,
+    `Foreign Entry: ${eventSummary.foreign_entry_year || "UNKNOWN"}`,
+    `Settlement Window: ${eventSummary.settlement_window || "UNKNOWN"}`,
+    `Career Major Count: ${eventSummary.career_major_count}`,
+    `Money Event Count: ${eventSummary.money_event_count}`,
+    `Health Event Count: ${eventSummary.health_event_count}`,
+    `Top Domains: ${topDomains.join(" | ")}`,
+    "Key Timeline:",
+    ...keyTimeline,
+    `Carryover Present: ${carryover.present_carryover_detected ? "YES" : "NO"}`,
+    `Validation: ${validation.overall_validation}`,
+    `Confidence: ${confidence.confidence_level} (${confidence.confidence_score})`,
+    `Direction: ${verdict.forensic_direction}`,
+    `Lokkotha: ${lokkotha.text}`,
+    "PAST FORENSIC BLOCK END"
+  ].join("\n");
 }
 
-function buildVerdict({ mode, dobValid, hasName, hasQuestion, dobReady }) {
-  if (mode === "NO_INPUT") {
-    return {
-      outcome: "INSUFFICIENT_INPUT",
-      engine_decision: "WAITING_FOR_NAME_OR_DOB",
-      practical_note: "Supply at least a name or DOB to activate forensic intake"
-    };
-  }
-
-  if (mode === "DOB_MODE" && !dobValid) {
-    return {
-      outcome: "INPUT_REPAIR_NEEDED",
-      engine_decision: "DOB_REJECTED",
-      practical_note: "DOB supplied but invalid. Correct format before forensic scan"
-    };
-  }
-
-  if (mode === "HYBRID_MODE" && !dobValid) {
-    return {
-      outcome: "PARTIAL_ACTIVATION",
-      engine_decision: "NAME_ACCEPTED_DOB_REJECTED",
-      practical_note: "Name intake accepted, DOB needs correction for premium precision"
-    };
-  }
-
-  if (dobReady) {
-    return {
-      outcome: "FORENSIC_SCAN_READY",
-      engine_decision: "DOB_ANCHORED_REVERSE_SCAN_ACTIVE",
-      practical_note: hasQuestion
-        ? "DOB accepted. System is ready for deeper question-directed forensic past scan"
-        : "DOB accepted. System is ready for reverse scan expansion"
-    };
-  }
-
-  if (hasName) {
-    return {
-      outcome: "LIMITED_FORENSIC_READY",
-      engine_decision: "NAME_FALLBACK_ACTIVE",
-      practical_note: "Name intake accepted. Forensic fallback is possible, but DOB will unlock premium precision"
-    };
-  }
-
+function buildCompactBlock({
+  input,
+  mode,
+  questionRouting,
+  eventSummary,
+  carryover,
+  confidence,
+  verdict
+}) {
   return {
-    outcome: "FOUNDATION_ACTIVE",
-    engine_decision: "READY_FOR_NEXT_FORENSIC_PHASE",
-    practical_note: "System foundation active"
+    subject: input.name || "UNKNOWN",
+    mode,
+    primary_domain: questionRouting.primary_domain,
+    total_major_events: eventSummary.total_major_events,
+    total_broken_events: eventSummary.total_broken_events,
+    marriage_count: eventSummary.marriage_count,
+    current_marriage_status: eventSummary.current_marriage_status,
+    foreign_entry: eventSummary.foreign_entry_year,
+    settlement_window: eventSummary.settlement_window,
+    carryover_present: carryover.present_carryover_detected,
+    confidence: confidence.confidence_level,
+    verdict: verdict.forensic_direction
   };
 }
