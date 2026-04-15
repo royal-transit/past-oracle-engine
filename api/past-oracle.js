@@ -1,6 +1,6 @@
 // api/past-oracle.js
 // UNIVERSAL HARD-LOCK ORCHESTRATOR VERSION
-// FULL REPLACEMENT - VERSION STAMP + FULL PAYLOAD HARD RETURN
+// FULL REPLACEMENT - FINALIZER BEFORE EVIDENCE LAYER + VALIDATION LAYER
 
 import { buildChartCore } from "../lib/chart-core.js";
 import { astroProvider } from "../lib/provider-adapter.js";
@@ -10,7 +10,9 @@ import { runEvidenceLayer } from "../lib/layer-evidence.js";
 import { runEventFinalizer } from "../lib/event-finalizer.js";
 import { runValidationLayer } from "../lib/layer-validation.js";
 
-const API_VERSION = "PAST_API_FULL_PAYLOAD_V2_2026_04_15";
+/* =====================================
+   BASIC HELPERS
+===================================== */
 
 const str = (v) => (v == null ? "" : String(v).trim());
 
@@ -61,6 +63,10 @@ function hasAny(text, arr) {
   const src = String(text || "").toLowerCase();
   return arr.some((x) => src.includes(String(x).toLowerCase()));
 }
+
+/* =====================================
+   FACT PARSER
+===================================== */
 
 function extractMarriageCount(text) {
   const patterns = [
@@ -185,6 +191,10 @@ function minifyDomain(d) {
   };
 }
 
+/* =====================================
+   MAIN HANDLER
+===================================== */
+
 export default async function handler(req, res) {
   try {
     const q = req.query || {};
@@ -203,47 +213,73 @@ export default async function handler(req, res) {
       current_datetime_iso: str(q.current_datetime_iso)
     };
 
+    // ---------------------------------
+    // STEP 0: CORE CHART / INPUT ENGINE
+    // ---------------------------------
     const core = await buildChartCore(input, astroProvider);
 
     if (core.system_status !== "OK") {
       return res.status(400).json({
-        api_version: API_VERSION,
         engine_status: "PAST_ORACLE_UNIVERSAL_V4",
         system_status: "INPUT_ERROR",
         details: core
       });
     }
 
+    // ---------------------------------
+    // STEP 1: FACT PARSER
+    // ---------------------------------
     const facts = parseFactAnchors(input.facts, input.question);
 
+    // ---------------------------------
+    // STEP 2: QUESTION INTELLIGENCE (initial)
+    // ---------------------------------
     const stage1 = runIntelligenceLayer({
       domainResults: [],
       question: input.question
     });
 
+    // ---------------------------------
+    // STEP 3: ASTRO DOMAIN SCAN
+    // ---------------------------------
     const astro = runAstroLayer({
       evidence_packet: core.evidence_packet,
       facts,
       question_profile: stage1.question_profile
     });
 
+    // ---------------------------------
+    // STEP 4: INTELLIGENCE RE-RANK ON ASTRO OUTPUT
+    // ---------------------------------
     const stage2 = runIntelligenceLayer({
       domainResults: astro.domain_results,
       question: input.question
     });
 
+    // ---------------------------------
+    // STEP 5: FINALIZER FIRST
+    // ---------------------------------
     const finalizedDomains = runEventFinalizer(stage2.ranked_domains);
 
+    // ---------------------------------
+    // STEP 6: VALIDATION LAYER
+    // ---------------------------------
     const validationLayer = runValidationLayer({
       question: input.question,
       finalizedDomains
     });
 
+    // ---------------------------------
+    // STEP 7: TIMELINE FROM FINALIZED DOMAINS
+    // ---------------------------------
     const master_timeline = buildTimeline({
       ranked_domains: finalizedDomains,
       birth_context: core.birth_context
     });
 
+    // ---------------------------------
+    // STEP 8: EVIDENCE / FORENSIC OUTPUT
+    // ---------------------------------
     const evidenceLayer = runEvidenceLayer({
       input,
       facts,
@@ -254,8 +290,10 @@ export default async function handler(req, res) {
       validation_layer: validationLayer
     });
 
+    // ---------------------------------
+    // FINAL PAYLOAD
+    // ---------------------------------
     const payload = {
-      api_version: API_VERSION,
       engine_status: "PAST_ORACLE_UNIVERSAL_V4",
       system_status: "OK",
 
@@ -277,28 +315,18 @@ export default async function handler(req, res) {
 
       domain_results: evidenceLayer.ranked_domains,
       exact_domain_summary: evidenceLayer.exact_domain_summary,
+
       event_summary: evidenceLayer.event_summary,
       master_timeline: evidenceLayer.master_timeline,
       current_carryover: stage2.carryover,
       validation_block: evidenceLayer.validation_block,
       forensic_verdict: evidenceLayer.forensic_verdict,
       lokkotha_summary: evidenceLayer.lokkotha_summary,
-      project_paste_block: evidenceLayer.project_paste_block,
-
-      payload_debug: {
-        has_exact_domain_summary: !!evidenceLayer.exact_domain_summary,
-        has_event_summary: !!evidenceLayer.event_summary,
-        has_master_timeline: !!evidenceLayer.master_timeline,
-        has_validation_block: !!evidenceLayer.validation_block,
-        has_project_paste_block: !!evidenceLayer.project_paste_block,
-        master_timeline_length: Array.isArray(evidenceLayer.master_timeline) ? evidenceLayer.master_timeline.length : 0,
-        exact_domain_summary_length: Array.isArray(evidenceLayer.exact_domain_summary) ? evidenceLayer.exact_domain_summary.length : 0
-      }
+      project_paste_block: evidenceLayer.project_paste_block
     };
 
     if (input.format === "project") {
       return res.status(200).json({
-        api_version: API_VERSION,
         engine_status: "PAST_ORACLE_UNIVERSAL_V4",
         output_format: "project",
         validation_layer: validationLayer,
@@ -308,7 +336,6 @@ export default async function handler(req, res) {
 
     if (input.format === "compact") {
       return res.status(200).json({
-        api_version: API_VERSION,
         engine_status: "PAST_ORACLE_UNIVERSAL_V4",
         output_format: "compact",
         validation_layer: validationLayer,
@@ -343,22 +370,18 @@ export default async function handler(req, res) {
           health: evidenceLayer.event_summary.health?.health_status ?? "UNKNOWN",
           money: evidenceLayer.event_summary.money?.money_status ?? "UNKNOWN",
           conflict: evidenceLayer.event_summary.conflict?.conflict_status ?? "UNKNOWN",
+
           current_carryover: stage2.carryover.present_carryover_detected
         },
         exact_domain_summary: evidenceLayer.exact_domain_summary,
         verdict: evidenceLayer.forensic_verdict,
-        lokkotha_summary: evidenceLayer.lokkotha_summary,
-        payload_debug: {
-          master_timeline_length: Array.isArray(evidenceLayer.master_timeline) ? evidenceLayer.master_timeline.length : 0,
-          exact_domain_summary_length: Array.isArray(evidenceLayer.exact_domain_summary) ? evidenceLayer.exact_domain_summary.length : 0
-        }
+        lokkotha_summary: evidenceLayer.lokkotha_summary
       });
     }
 
     return res.status(200).json(payload);
   } catch (error) {
     return res.status(500).json({
-      api_version: API_VERSION,
       engine_status: "PAST_ORACLE_UNIVERSAL_V4",
       system_status: "ERROR",
       error_message: error instanceof Error ? error.message : "Unknown error"
