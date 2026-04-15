@@ -1,4 +1,5 @@
 // api/past-oracle.js
+// UNIVERSAL HARD-LOCK ORCHESTRATOR VERSION
 
 import { buildChartCore } from "../lib/chart-core.js";
 import { astroProvider } from "../lib/provider-adapter.js";
@@ -26,7 +27,7 @@ const normalizeFormat = (v) => {
 };
 
 function extractAllYears(text) {
-  return [...text.matchAll(/\b(19|20)\d{2}\b/g)].map((m) => Number(m[0]));
+  return [...String(text || "").matchAll(/\b(19|20)\d{2}\b/g)].map((m) => Number(m[0]));
 }
 
 function wordToNum(w) {
@@ -56,7 +57,8 @@ function parseFlexibleCountToken(token) {
 }
 
 function hasAny(text, arr) {
-  return arr.some((x) => text.includes(x));
+  const src = String(text || "").toLowerCase();
+  return arr.some((x) => src.includes(String(x).toLowerCase()));
 }
 
 /* =====================================
@@ -66,11 +68,12 @@ function hasAny(text, arr) {
 function extractMarriageCount(text) {
   const patterns = [
     /\b(\d+|one|two|three|four|five|ek|ekta|dui|duita|tin|tinta|char|charta|pach|pachta)\s+marriages?\b/i,
-    /\b(\d+|one|two|three|four|five|ek|ekta|dui|duita|tin|tinta|char|charta|pach|pachta)\s+bea\b/i
+    /\b(\d+|one|two|three|four|five|ek|ekta|dui|duita|tin|tinta|char|charta|pach|pachta)\s+bea\b/i,
+    /\b(\d+|one|two|three|four|five|ek|ekta|dui|duita|tin|tinta|char|charta|pach|pachta)\s+biye\b/i
   ];
 
   for (const rx of patterns) {
-    const m = text.match(rx);
+    const m = String(text || "").match(rx);
     if (m) return parseFlexibleCountToken(m[1]);
   }
 
@@ -81,11 +84,12 @@ function extractBrokenMarriageCount(text) {
   const patterns = [
     /\b(\d+|one|two|three|four|five|ek|ekta|dui|duita|tin|tinta|char|charta|pach|pachta)\s+broken\b/i,
     /\b(\d+|one|two|three|four|five|ek|ekta|dui|duita|tin|tinta|char|charta|pach|pachta)\s+divorce\b/i,
-    /\b(\d+|one|two|three|four|five|ek|ekta|dui|duita|tin|tinta|char|charta|pach|pachta)\s+separation\b/i
+    /\b(\d+|one|two|three|four|five|ek|ekta|dui|duita|tin|tinta|char|charta|pach|pachta)\s+separation\b/i,
+    /\b(\d+|one|two|three|four|five|ek|ekta|dui|duita|tin|tinta|char|charta|pach|pachta)\s+talak\b/i
   ];
 
   for (const rx of patterns) {
-    const m = text.match(rx);
+    const m = String(text || "").match(rx);
     if (m) return parseFlexibleCountToken(m[1]);
   }
 
@@ -93,20 +97,20 @@ function extractBrokenMarriageCount(text) {
 }
 
 function extractYearNearKeyword(text, keywords) {
+  const src = String(text || "");
   for (const kw of keywords) {
-    const idx = text.indexOf(kw);
+    const idx = src.toLowerCase().indexOf(String(kw).toLowerCase());
     if (idx === -1) continue;
-
-    const tail = text.slice(idx);
+    const tail = src.slice(idx, idx + 100);
     const m = tail.match(/\b(19|20)\d{2}\b/);
     if (m) return Number(m[0]);
   }
-
   return null;
 }
 
 function parseFactAnchors(facts, question) {
-  const text = `${facts || ""} ${question || ""}`.toLowerCase();
+  const rawText = `${facts || ""} ${question || ""}`.trim();
+  const text = rawText.toLowerCase();
   const allYears = extractAllYears(text);
 
   let marriageCount = extractMarriageCount(text);
@@ -119,7 +123,10 @@ function parseFactAnchors(facts, question) {
     "came",
     "arrived",
     "entry",
-    "moved"
+    "moved",
+    "visa",
+    "immigration",
+    "bidesh"
   ]);
 
   let settlementYear = extractYearNearKeyword(text, [
@@ -127,12 +134,13 @@ function parseFactAnchors(facts, question) {
     "settled",
     "stable",
     "stabil",
-    "base"
+    "base",
+    "permanent"
   ]);
 
   if (
     foreignEntryYear == null &&
-    hasAny(text, ["uk", "foreign", "abroad", "came", "arrived", "entry", "moved"]) &&
+    hasAny(text, ["uk", "foreign", "abroad", "came", "arrived", "entry", "moved", "visa", "immigration", "bidesh"]) &&
     allYears.length
   ) {
     foreignEntryYear = allYears[0];
@@ -140,7 +148,7 @@ function parseFactAnchors(facts, question) {
 
   if (
     settlementYear == null &&
-    hasAny(text, ["settlement", "settled", "stable", "stabil", "base"]) &&
+    hasAny(text, ["settlement", "settled", "stable", "stabil", "base", "permanent"]) &&
     allYears.length >= 2
   ) {
     settlementYear = allYears[allYears.length - 1];
@@ -170,7 +178,6 @@ function minifyDomain(d) {
   return {
     domain_key: d.domain_key,
     domain_label: d.domain_label,
-    rank_score: d.rank_score,
     normalized_score: d.normalized_score,
     density: d.density,
     residual_impact: d.residual_impact,
@@ -209,7 +216,7 @@ export default async function handler(req, res) {
 
     if (core.system_status !== "OK") {
       return res.status(400).json({
-        engine_status: "PAST_ORACLE_LAYERED_FORENSIC_V4",
+        engine_status: "PAST_ORACLE_UNIVERSAL_V1",
         system_status: "INPUT_ERROR",
         details: core
       });
@@ -229,7 +236,7 @@ export default async function handler(req, res) {
     });
 
     // ---------------------------------
-    // STEP 3: ASTRO DOMAIN SCAN
+    // STEP 3: ASTRO DOMAIN SCAN / EVENT BUILD
     // ---------------------------------
     const astro = runAstroLayer({
       evidence_packet: core.evidence_packet,
@@ -269,7 +276,7 @@ export default async function handler(req, res) {
     // FINAL PAYLOAD
     // ---------------------------------
     const payload = {
-      engine_status: "PAST_ORACLE_LAYERED_FORENSIC_V4",
+      engine_status: "PAST_ORACLE_UNIVERSAL_V1",
       system_status: "OK",
 
       mode: core.mode,
@@ -301,7 +308,7 @@ export default async function handler(req, res) {
 
     if (input.format === "project") {
       return res.status(200).json({
-        engine_status: "PAST_ORACLE_LAYERED_FORENSIC_V4",
+        engine_status: "PAST_ORACLE_UNIVERSAL_V1",
         output_format: "project",
         project_paste_block: evidenceLayer.project_paste_block
       });
@@ -309,7 +316,7 @@ export default async function handler(req, res) {
 
     if (input.format === "compact") {
       return res.status(200).json({
-        engine_status: "PAST_ORACLE_LAYERED_FORENSIC_V4",
+        engine_status: "PAST_ORACLE_UNIVERSAL_V1",
         output_format: "compact",
         summary: {
           primary_domain: stage2.question_profile.primary_domain,
@@ -317,11 +324,32 @@ export default async function handler(req, res) {
           top_domains: evidenceLayer.ranked_domains
             .slice(0, 5)
             .map((d) => d.domain_label),
-          marriage_count: evidenceLayer.event_summary.marriage_count,
-          broken_marriage_count: evidenceLayer.event_summary.broken_marriage_count,
-          current_marriage_status: evidenceLayer.event_summary.current_marriage_status,
-          foreign_shift_count: evidenceLayer.event_summary.foreign_shift_count,
-          settlement_year: evidenceLayer.event_summary.settlement_year,
+
+          relationship: {
+            marriage_count: evidenceLayer.event_summary.relationship?.marriage_count ?? 0,
+            broken_marriage_count: evidenceLayer.event_summary.relationship?.broken_marriage_count ?? 0,
+            current_marriage_status: evidenceLayer.event_summary.relationship?.current_marriage_status ?? "UNKNOWN",
+            latest_relationship_event_type: evidenceLayer.event_summary.relationship?.latest_relationship_event_type ?? null
+          },
+
+          work: {
+            dominant_work_mode: evidenceLayer.event_summary.work?.dominant_work_mode ?? "UNKNOWN",
+            education_active: evidenceLayer.event_summary.work?.education_active ?? false,
+            job_active: evidenceLayer.event_summary.work?.job_active ?? false,
+            business_active: evidenceLayer.event_summary.work?.business_active ?? false
+          },
+
+          foreign: {
+            foreign_shift_count: evidenceLayer.event_summary.foreign?.foreign_shift_count ?? 0,
+            foreign_entry_year: evidenceLayer.event_summary.foreign?.foreign_entry_year ?? null,
+            settlement_year: evidenceLayer.event_summary.foreign?.settlement_year ?? null,
+            foreign_process_status: evidenceLayer.event_summary.foreign?.foreign_process_status ?? null
+          },
+
+          health: evidenceLayer.event_summary.health?.health_status ?? "UNKNOWN",
+          money: evidenceLayer.event_summary.money?.money_status ?? "UNKNOWN",
+          conflict: evidenceLayer.event_summary.conflict?.conflict_status ?? "UNKNOWN",
+
           current_carryover: stage2.carryover.present_carryover_detected
         },
         exact_domain_summary: evidenceLayer.exact_domain_summary,
@@ -333,7 +361,7 @@ export default async function handler(req, res) {
     return res.status(200).json(payload);
   } catch (error) {
     return res.status(500).json({
-      engine_status: "PAST_ORACLE_LAYERED_FORENSIC_V4",
+      engine_status: "PAST_ORACLE_UNIVERSAL_V1",
       system_status: "ERROR",
       error_message: error instanceof Error ? error.message : "Unknown error"
     });
