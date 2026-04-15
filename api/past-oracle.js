@@ -1,6 +1,6 @@
 // api/past-oracle.js
 // UNIVERSAL HARD-LOCK ORCHESTRATOR VERSION
-// FULL REPLACEMENT - FINALIZER BEFORE EVIDENCE LAYER
+// FULL REPLACEMENT - FINALIZER BEFORE EVIDENCE LAYER + VALIDATION LAYER
 
 import { buildChartCore } from "../lib/chart-core.js";
 import { astroProvider } from "../lib/provider-adapter.js";
@@ -8,6 +8,7 @@ import { runIntelligenceLayer } from "../lib/layer-intelligence.js";
 import { runAstroLayer, buildTimeline } from "../lib/layer-astro.js";
 import { runEvidenceLayer } from "../lib/layer-evidence.js";
 import { runEventFinalizer } from "../lib/event-finalizer.js";
+import { runValidationLayer } from "../lib/layer-validation.js";
 
 /* =====================================
    BASIC HELPERS
@@ -219,7 +220,7 @@ export default async function handler(req, res) {
 
     if (core.system_status !== "OK") {
       return res.status(400).json({
-        engine_status: "PAST_ORACLE_UNIVERSAL_V3",
+        engine_status: "PAST_ORACLE_UNIVERSAL_V4",
         system_status: "INPUT_ERROR",
         details: core
       });
@@ -261,7 +262,15 @@ export default async function handler(req, res) {
     const finalizedDomains = runEventFinalizer(stage2.ranked_domains);
 
     // ---------------------------------
-    // STEP 6: TIMELINE FROM FINALIZED DOMAINS
+    // STEP 6: VALIDATION LAYER
+    // ---------------------------------
+    const validationLayer = runValidationLayer({
+      question: input.question,
+      finalizedDomains
+    });
+
+    // ---------------------------------
+    // STEP 7: TIMELINE FROM FINALIZED DOMAINS
     // ---------------------------------
     const master_timeline = buildTimeline({
       ranked_domains: finalizedDomains,
@@ -269,7 +278,7 @@ export default async function handler(req, res) {
     });
 
     // ---------------------------------
-    // STEP 7: EVIDENCE / FORENSIC OUTPUT
+    // STEP 8: EVIDENCE / FORENSIC OUTPUT
     // ---------------------------------
     const evidenceLayer = runEvidenceLayer({
       input,
@@ -277,14 +286,15 @@ export default async function handler(req, res) {
       question_profile: stage2.question_profile,
       ranked_domains: finalizedDomains,
       master_timeline,
-      carryover: stage2.carryover
+      carryover: stage2.carryover,
+      validation_layer: validationLayer
     });
 
     // ---------------------------------
     // FINAL PAYLOAD
     // ---------------------------------
     const payload = {
-      engine_status: "PAST_ORACLE_UNIVERSAL_V3",
+      engine_status: "PAST_ORACLE_UNIVERSAL_V4",
       system_status: "OK",
 
       mode: core.mode,
@@ -297,6 +307,7 @@ export default async function handler(req, res) {
       linked_domain_expansion: stage2.linked_domain_expansion,
 
       evidence_normalized: astro.evidence_normalized,
+      validation_layer: validationLayer,
 
       top_ranked_domains: evidenceLayer.ranked_domains
         .slice(0, 12)
@@ -316,16 +327,18 @@ export default async function handler(req, res) {
 
     if (input.format === "project") {
       return res.status(200).json({
-        engine_status: "PAST_ORACLE_UNIVERSAL_V3",
+        engine_status: "PAST_ORACLE_UNIVERSAL_V4",
         output_format: "project",
+        validation_layer: validationLayer,
         project_paste_block: evidenceLayer.project_paste_block
       });
     }
 
     if (input.format === "compact") {
       return res.status(200).json({
-        engine_status: "PAST_ORACLE_UNIVERSAL_V3",
+        engine_status: "PAST_ORACLE_UNIVERSAL_V4",
         output_format: "compact",
+        validation_layer: validationLayer,
         summary: {
           primary_domain: stage2.question_profile.primary_domain,
           total_events: evidenceLayer.event_summary.total_estimated_events,
@@ -369,7 +382,7 @@ export default async function handler(req, res) {
     return res.status(200).json(payload);
   } catch (error) {
     return res.status(500).json({
-      engine_status: "PAST_ORACLE_UNIVERSAL_V3",
+      engine_status: "PAST_ORACLE_UNIVERSAL_V4",
       system_status: "ERROR",
       error_message: error instanceof Error ? error.message : "Unknown error"
     });
