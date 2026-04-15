@@ -306,7 +306,7 @@ export default async function handler(req, res) {
       exact_domain_summary: evidenceLayer.exact_domain_summary,
 
       event_summary: evidenceLayer.event_summary,
-      master_timeline,
+      master_timeline: evidenceLayer.master_timeline,
       current_carryover: stage2.carryover,
       validation_block: evidenceLayer.validation_block,
       forensic_verdict: evidenceLayer.forensic_verdict,
