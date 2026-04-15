@@ -1,6 +1,6 @@
 // api/past-oracle.js
 // UNIVERSAL HARD-LOCK ORCHESTRATOR VERSION
-// FULL REPLACEMENT WITH EVENT FINALIZER WIRED
+// FULL REPLACEMENT - FINALIZER BEFORE EVIDENCE LAYER
 
 import { buildChartCore } from "../lib/chart-core.js";
 import { astroProvider } from "../lib/provider-adapter.js";
@@ -219,7 +219,7 @@ export default async function handler(req, res) {
 
     if (core.system_status !== "OK") {
       return res.status(400).json({
-        engine_status: "PAST_ORACLE_UNIVERSAL_V2",
+        engine_status: "PAST_ORACLE_UNIVERSAL_V3",
         system_status: "INPUT_ERROR",
         details: core
       });
@@ -239,7 +239,7 @@ export default async function handler(req, res) {
     });
 
     // ---------------------------------
-    // STEP 3: ASTRO DOMAIN SCAN / EVENT BUILD
+    // STEP 3: ASTRO DOMAIN SCAN
     // ---------------------------------
     const astro = runAstroLayer({
       evidence_packet: core.evidence_packet,
@@ -256,35 +256,35 @@ export default async function handler(req, res) {
     });
 
     // ---------------------------------
-    // STEP 5: TIMELINE
+    // STEP 5: FINALIZER FIRST
+    // ---------------------------------
+    const finalizedDomains = runEventFinalizer(stage2.ranked_domains);
+
+    // ---------------------------------
+    // STEP 6: TIMELINE FROM FINALIZED DOMAINS
     // ---------------------------------
     const master_timeline = buildTimeline({
-      ranked_domains: stage2.ranked_domains,
+      ranked_domains: finalizedDomains,
       birth_context: core.birth_context
     });
 
     // ---------------------------------
-    // STEP 6: EVIDENCE / FORENSIC OUTPUT
+    // STEP 7: EVIDENCE / FORENSIC OUTPUT
     // ---------------------------------
     const evidenceLayer = runEvidenceLayer({
       input,
       facts,
       question_profile: stage2.question_profile,
-      ranked_domains: stage2.ranked_domains,
+      ranked_domains: finalizedDomains,
       master_timeline,
       carryover: stage2.carryover
     });
 
     // ---------------------------------
-    // STEP 7: FINAL EVENT STATE HARD LOCK
-    // ---------------------------------
-    const finalizedDomains = runEventFinalizer(evidenceLayer.ranked_domains);
-
-    // ---------------------------------
     // FINAL PAYLOAD
     // ---------------------------------
     const payload = {
-      engine_status: "PAST_ORACLE_UNIVERSAL_V2",
+      engine_status: "PAST_ORACLE_UNIVERSAL_V3",
       system_status: "OK",
 
       mode: core.mode,
@@ -298,11 +298,11 @@ export default async function handler(req, res) {
 
       evidence_normalized: astro.evidence_normalized,
 
-      top_ranked_domains: finalizedDomains
+      top_ranked_domains: evidenceLayer.ranked_domains
         .slice(0, 12)
         .map(minifyDomain),
 
-      domain_results: finalizedDomains,
+      domain_results: evidenceLayer.ranked_domains,
       exact_domain_summary: evidenceLayer.exact_domain_summary,
 
       event_summary: evidenceLayer.event_summary,
@@ -316,7 +316,7 @@ export default async function handler(req, res) {
 
     if (input.format === "project") {
       return res.status(200).json({
-        engine_status: "PAST_ORACLE_UNIVERSAL_V2",
+        engine_status: "PAST_ORACLE_UNIVERSAL_V3",
         output_format: "project",
         project_paste_block: evidenceLayer.project_paste_block
       });
@@ -324,12 +324,12 @@ export default async function handler(req, res) {
 
     if (input.format === "compact") {
       return res.status(200).json({
-        engine_status: "PAST_ORACLE_UNIVERSAL_V2",
+        engine_status: "PAST_ORACLE_UNIVERSAL_V3",
         output_format: "compact",
         summary: {
           primary_domain: stage2.question_profile.primary_domain,
           total_events: evidenceLayer.event_summary.total_estimated_events,
-          top_domains: finalizedDomains
+          top_domains: evidenceLayer.ranked_domains
             .slice(0, 5)
             .map((d) => d.domain_label),
 
@@ -369,7 +369,7 @@ export default async function handler(req, res) {
     return res.status(200).json(payload);
   } catch (error) {
     return res.status(500).json({
-      engine_status: "PAST_ORACLE_UNIVERSAL_V2",
+      engine_status: "PAST_ORACLE_UNIVERSAL_V3",
       system_status: "ERROR",
       error_message: error instanceof Error ? error.message : "Unknown error"
     });
