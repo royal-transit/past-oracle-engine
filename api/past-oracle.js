@@ -1,11 +1,13 @@
 // api/past-oracle.js
 // UNIVERSAL HARD-LOCK ORCHESTRATOR VERSION
+// FULL REPLACEMENT WITH EVENT FINALIZER WIRED
 
 import { buildChartCore } from "../lib/chart-core.js";
 import { astroProvider } from "../lib/provider-adapter.js";
 import { runIntelligenceLayer } from "../lib/layer-intelligence.js";
 import { runAstroLayer, buildTimeline } from "../lib/layer-astro.js";
 import { runEvidenceLayer } from "../lib/layer-evidence.js";
+import { runEventFinalizer } from "../lib/event-finalizer.js";
 
 /* =====================================
    BASIC HELPERS
@@ -183,7 +185,8 @@ function minifyDomain(d) {
     residual_impact: d.residual_impact,
     major_event_count: d.major_event_count,
     broken_event_count: d.broken_event_count,
-    active_event_count: d.active_event_count
+    active_event_count: d.active_event_count,
+    final_state: d.final_state || null
   };
 }
 
@@ -216,7 +219,7 @@ export default async function handler(req, res) {
 
     if (core.system_status !== "OK") {
       return res.status(400).json({
-        engine_status: "PAST_ORACLE_UNIVERSAL_V1",
+        engine_status: "PAST_ORACLE_UNIVERSAL_V2",
         system_status: "INPUT_ERROR",
         details: core
       });
@@ -273,10 +276,15 @@ export default async function handler(req, res) {
     });
 
     // ---------------------------------
+    // STEP 7: FINAL EVENT STATE HARD LOCK
+    // ---------------------------------
+    const finalizedDomains = runEventFinalizer(evidenceLayer.ranked_domains);
+
+    // ---------------------------------
     // FINAL PAYLOAD
     // ---------------------------------
     const payload = {
-      engine_status: "PAST_ORACLE_UNIVERSAL_V1",
+      engine_status: "PAST_ORACLE_UNIVERSAL_V2",
       system_status: "OK",
 
       mode: core.mode,
@@ -290,11 +298,11 @@ export default async function handler(req, res) {
 
       evidence_normalized: astro.evidence_normalized,
 
-      top_ranked_domains: evidenceLayer.ranked_domains
+      top_ranked_domains: finalizedDomains
         .slice(0, 12)
         .map(minifyDomain),
 
-      domain_results: evidenceLayer.ranked_domains,
+      domain_results: finalizedDomains,
       exact_domain_summary: evidenceLayer.exact_domain_summary,
 
       event_summary: evidenceLayer.event_summary,
@@ -308,7 +316,7 @@ export default async function handler(req, res) {
 
     if (input.format === "project") {
       return res.status(200).json({
-        engine_status: "PAST_ORACLE_UNIVERSAL_V1",
+        engine_status: "PAST_ORACLE_UNIVERSAL_V2",
         output_format: "project",
         project_paste_block: evidenceLayer.project_paste_block
       });
@@ -316,12 +324,12 @@ export default async function handler(req, res) {
 
     if (input.format === "compact") {
       return res.status(200).json({
-        engine_status: "PAST_ORACLE_UNIVERSAL_V1",
+        engine_status: "PAST_ORACLE_UNIVERSAL_V2",
         output_format: "compact",
         summary: {
           primary_domain: stage2.question_profile.primary_domain,
           total_events: evidenceLayer.event_summary.total_estimated_events,
-          top_domains: evidenceLayer.ranked_domains
+          top_domains: finalizedDomains
             .slice(0, 5)
             .map((d) => d.domain_label),
 
@@ -361,7 +369,7 @@ export default async function handler(req, res) {
     return res.status(200).json(payload);
   } catch (error) {
     return res.status(500).json({
-      engine_status: "PAST_ORACLE_UNIVERSAL_V1",
+      engine_status: "PAST_ORACLE_UNIVERSAL_V2",
       system_status: "ERROR",
       error_message: error instanceof Error ? error.message : "Unknown error"
     });
