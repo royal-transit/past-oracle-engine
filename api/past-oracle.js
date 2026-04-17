@@ -1,6 +1,12 @@
 // api/past-oracle.js
 // UNIVERSAL HARD-LOCK ORCHESTRATOR VERSION
 // FULL REPLACEMENT - FINALIZER BEFORE EVIDENCE LAYER + VALIDATION LAYER
+// Goals:
+// - keep existing payload shape stable
+// - wire subject_context / birth_context into astro + evidence layers
+// - support name-only / name-context / DOB-reduced / full-birth modes
+// - no fake exact timeline escalation in weak modes
+// - expose truth-level blocks for downstream GPT use
 
 import { buildChartCore } from "../lib/chart-core.js";
 import { astroProvider } from "../lib/provider-adapter.js";
@@ -187,7 +193,31 @@ function minifyDomain(d) {
     major_event_count: d.major_event_count,
     broken_event_count: d.broken_event_count,
     active_event_count: d.active_event_count,
-    final_state: d.final_state || null
+    final_state: d.final_state || null,
+    pattern_mode_active: !!d.pattern_mode_active,
+    exact_timeline_allowed: d.exact_timeline_allowed !== false,
+    direct_evidence_count: Number(d.direct_evidence_count || 0),
+    pattern_evidence_count: Number(d.pattern_evidence_count || 0)
+  };
+}
+
+function buildTopLevelTruthSummary(core, astro, evidenceLayer) {
+  const modeFlags = astro?.mode_flags || {};
+  const truthSummary = evidenceLayer?.event_summary?.truth_summary || {};
+
+  return {
+    subject_mode: core?.subject_context?.subject_mode || null,
+    identity_depth: core?.subject_context?.identity_depth || null,
+    identity_confidence: core?.subject_context?.identity_confidence || null,
+    precision_mode: core?.birth_context?.precision_mode || null,
+    weak_timeline_mode: !!(modeFlags.isNameOnly || modeFlags.isNameContext),
+    exact_timeline_allowed: !!truthSummary.exact_timeline_allowed,
+    truth_level: truthSummary.truth_level || null,
+    direct_evidence_count: truthSummary.direct_evidence_count ?? 0,
+    pattern_confirmed_count: truthSummary.pattern_confirmed_count ?? 0,
+    repeated_pattern_count: truthSummary.repeated_pattern_count ?? 0,
+    likely_history_count: truthSummary.likely_history_count ?? 0,
+    name_pattern_count: truthSummary.name_pattern_count ?? 0
   };
 }
 
@@ -220,7 +250,7 @@ export default async function handler(req, res) {
 
     if (core.system_status !== "OK") {
       return res.status(400).json({
-        engine_status: "PAST_ORACLE_UNIVERSAL_V4",
+        engine_status: "PAST_ORACLE_UNIVERSAL_V5",
         system_status: "INPUT_ERROR",
         details: core
       });
@@ -245,7 +275,9 @@ export default async function handler(req, res) {
     const astro = runAstroLayer({
       evidence_packet: core.evidence_packet,
       facts,
-      question_profile: stage1.question_profile
+      question_profile: stage1.question_profile,
+      subject_context: core.subject_context,
+      birth_context: core.birth_context
     });
 
     // ---------------------------------
@@ -274,7 +306,8 @@ export default async function handler(req, res) {
     // ---------------------------------
     const master_timeline = buildTimeline({
       ranked_domains: finalizedDomains,
-      birth_context: core.birth_context
+      birth_context: core.birth_context,
+      subject_context: core.subject_context
     });
 
     // ---------------------------------
@@ -287,18 +320,27 @@ export default async function handler(req, res) {
       ranked_domains: finalizedDomains,
       master_timeline,
       carryover: stage2.carryover,
-      validation_layer: validationLayer
+      validation_layer: validationLayer,
+      subject_context: core.subject_context,
+      birth_context: core.birth_context
     });
+
+    const topLevelTruthSummary = buildTopLevelTruthSummary(core, astro, evidenceLayer);
 
     // ---------------------------------
     // FINAL PAYLOAD
     // ---------------------------------
     const payload = {
-      engine_status: "PAST_ORACLE_UNIVERSAL_V4",
+      engine_status: "PAST_ORACLE_UNIVERSAL_V5",
       system_status: "OK",
 
-      mode: core.mode,
+      mode: core.subject_context?.question_mode || "GENERAL",
+      subject_mode: core.subject_context?.subject_mode || null,
+      identity_depth: core.subject_context?.identity_depth || null,
+      precision_mode: core.birth_context?.precision_mode || null,
+
       input_normalized: core.input_normalized,
+      subject_context: core.subject_context,
       birth_context: core.birth_context,
       current_context: core.current_context,
 
@@ -307,6 +349,8 @@ export default async function handler(req, res) {
       linked_domain_expansion: stage2.linked_domain_expansion,
 
       evidence_normalized: astro.evidence_normalized,
+      mode_flags: astro.mode_flags || {},
+      name_hints: astro.name_hints || {},
       validation_layer: validationLayer,
 
       top_ranked_domains: evidenceLayer.ranked_domains
@@ -317,6 +361,7 @@ export default async function handler(req, res) {
       exact_domain_summary: evidenceLayer.exact_domain_summary,
 
       event_summary: evidenceLayer.event_summary,
+      truth_summary: topLevelTruthSummary,
       master_timeline: evidenceLayer.master_timeline,
       current_carryover: stage2.carryover,
       validation_block: evidenceLayer.validation_block,
@@ -327,8 +372,12 @@ export default async function handler(req, res) {
 
     if (input.format === "project") {
       return res.status(200).json({
-        engine_status: "PAST_ORACLE_UNIVERSAL_V4",
+        engine_status: "PAST_ORACLE_UNIVERSAL_V5",
         output_format: "project",
+        subject_mode: core.subject_context?.subject_mode || null,
+        identity_depth: core.subject_context?.identity_depth || null,
+        precision_mode: core.birth_context?.precision_mode || null,
+        truth_summary: topLevelTruthSummary,
         validation_layer: validationLayer,
         project_paste_block: evidenceLayer.project_paste_block
       });
@@ -336,8 +385,12 @@ export default async function handler(req, res) {
 
     if (input.format === "compact") {
       return res.status(200).json({
-        engine_status: "PAST_ORACLE_UNIVERSAL_V4",
+        engine_status: "PAST_ORACLE_UNIVERSAL_V5",
         output_format: "compact",
+        subject_mode: core.subject_context?.subject_mode || null,
+        identity_depth: core.subject_context?.identity_depth || null,
+        precision_mode: core.birth_context?.precision_mode || null,
+        truth_summary: topLevelTruthSummary,
         validation_layer: validationLayer,
         summary: {
           primary_domain: stage2.question_profile.primary_domain,
@@ -371,6 +424,10 @@ export default async function handler(req, res) {
           money: evidenceLayer.event_summary.money?.money_status ?? "UNKNOWN",
           conflict: evidenceLayer.event_summary.conflict?.conflict_status ?? "UNKNOWN",
 
+          timing_summary: evidenceLayer.event_summary.timing_summary || {},
+          truth_summary: evidenceLayer.event_summary.truth_summary || {},
+          recognition_lines: evidenceLayer.event_summary.recognition_lines || [],
+
           current_carryover: stage2.carryover.present_carryover_detected
         },
         exact_domain_summary: evidenceLayer.exact_domain_summary,
@@ -382,7 +439,7 @@ export default async function handler(req, res) {
     return res.status(200).json(payload);
   } catch (error) {
     return res.status(500).json({
-      engine_status: "PAST_ORACLE_UNIVERSAL_V4",
+      engine_status: "PAST_ORACLE_UNIVERSAL_V5",
       system_status: "ERROR",
       error_message: error instanceof Error ? error.message : "Unknown error"
     });
