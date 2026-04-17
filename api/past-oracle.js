@@ -242,7 +242,9 @@ export default async function handler(req, res) {
       format: normalizeFormat(q.format),
       current_datetime_iso: str(q.current_datetime_iso)
     };
-
+if (!input.question && input.name) {
+  input.question = `${input.name} past history`;
+}
     // ---------------------------------
     // STEP 0: CORE CHART / INPUT ENGINE
     // ---------------------------------
