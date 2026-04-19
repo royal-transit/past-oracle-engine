@@ -1,12 +1,6 @@
 // api/past-oracle.js
 // UNIVERSAL HARD-LOCK ORCHESTRATOR VERSION
-// FULL REPLACEMENT - FINALIZER BEFORE EVIDENCE LAYER + VALIDATION LAYER
-// Goals:
-// - keep existing payload shape stable
-// - wire subject_context / birth_context into astro + evidence layers
-// - support name-only / name-context / DOB-reduced / full-birth modes
-// - no fake exact timeline escalation in weak modes
-// - expose truth-level blocks for downstream GPT use
+// FULL REPLACEMENT - STATE NORMALIZER + DELIVERY SAFE PACKET ENABLED
 
 import { buildChartCore } from "../lib/chart-core.js";
 import { astroProvider } from "../lib/provider-adapter.js";
@@ -15,6 +9,14 @@ import { runAstroLayer, buildTimeline } from "../lib/layer-astro.js";
 import { runEvidenceLayer } from "../lib/layer-evidence.js";
 import { runEventFinalizer } from "../lib/event-finalizer.js";
 import { runValidationLayer } from "../lib/layer-validation.js";
+import {
+  normalizeSectorStates,
+  buildDomainTruthMap
+} from "../lib/state-normalizer.js";
+import {
+  buildTruthLines,
+  buildFinalTruthSummary
+} from "../lib/delivery-mapper.js";
 
 /* =====================================
    BASIC HELPERS
@@ -221,6 +223,21 @@ function buildTopLevelTruthSummary(core, astro, evidenceLayer) {
   };
 }
 
+function buildDeliverySafePacket(validationLayer = {}) {
+  const sectorState = validationLayer?.sector_state || {};
+  const normalized_states = normalizeSectorStates(sectorState);
+  const domain_truth_map = buildDomainTruthMap(sectorState);
+  const truth_lines = buildTruthLines(domain_truth_map);
+  const final_truth_summary = buildFinalTruthSummary(domain_truth_map);
+
+  return {
+    normalized_states,
+    domain_truth_map,
+    truth_lines,
+    final_truth_summary
+  };
+}
+
 /* =====================================
    MAIN HANDLER
 ===================================== */
@@ -242,9 +259,11 @@ export default async function handler(req, res) {
       format: normalizeFormat(q.format),
       current_datetime_iso: str(q.current_datetime_iso)
     };
-if (!input.question && input.name) {
-  input.question = `${input.name} past history`;
-}
+
+    if (!input.question && input.name) {
+      input.question = `${input.name} past history`;
+    }
+
     // ---------------------------------
     // STEP 0: CORE CHART / INPUT ENGINE
     // ---------------------------------
@@ -304,7 +323,12 @@ if (!input.question && input.name) {
     });
 
     // ---------------------------------
-    // STEP 7: TIMELINE FROM FINALIZED DOMAINS
+    // STEP 7: DELIVERY SAFE PACKET
+    // ---------------------------------
+    const deliverySafePacket = buildDeliverySafePacket(validationLayer);
+
+    // ---------------------------------
+    // STEP 8: TIMELINE FROM FINALIZED DOMAINS
     // ---------------------------------
     const master_timeline = buildTimeline({
       ranked_domains: finalizedDomains,
@@ -313,7 +337,7 @@ if (!input.question && input.name) {
     });
 
     // ---------------------------------
-    // STEP 8: EVIDENCE / FORENSIC OUTPUT
+    // STEP 9: EVIDENCE / FORENSIC OUTPUT
     // ---------------------------------
     const evidenceLayer = runEvidenceLayer({
       input,
@@ -355,6 +379,8 @@ if (!input.question && input.name) {
       name_hints: astro.name_hints || {},
       validation_layer: validationLayer,
 
+      delivery_safe_packet: deliverySafePacket,
+
       top_ranked_domains: evidenceLayer.ranked_domains
         .slice(0, 12)
         .map(minifyDomain),
@@ -381,6 +407,7 @@ if (!input.question && input.name) {
         precision_mode: core.birth_context?.precision_mode || null,
         truth_summary: topLevelTruthSummary,
         validation_layer: validationLayer,
+        delivery_safe_packet: deliverySafePacket,
         project_paste_block: evidenceLayer.project_paste_block
       });
     }
@@ -394,6 +421,7 @@ if (!input.question && input.name) {
         precision_mode: core.birth_context?.precision_mode || null,
         truth_summary: topLevelTruthSummary,
         validation_layer: validationLayer,
+        delivery_safe_packet: deliverySafePacket,
         summary: {
           primary_domain: stage2.question_profile.primary_domain,
           total_events: evidenceLayer.event_summary.total_estimated_events,
