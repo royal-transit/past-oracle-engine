@@ -1,6 +1,6 @@
 // api/past-oracle.js
 // UNIVERSAL HARD-LOCK ORCHESTRATOR VERSION
-// FULL REPLACEMENT - STATE NORMALIZER + DELIVERY SAFE PACKET ENABLED
+// FULL REPLACEMENT - STATE NORMALIZER + DELIVERY SAFE PACKET + IDENTITY PACKET LOCK
 
 import { buildChartCore } from "../lib/chart-core.js";
 import { astroProvider } from "../lib/provider-adapter.js";
@@ -17,10 +17,7 @@ import {
   buildTruthLines,
   buildFinalTruthSummary
 } from "../lib/delivery-mapper.js";
-
-/* =====================================
-   BASIC HELPERS
-===================================== */
+import { buildIdentityPacket } from "../lib/identity-packet.js";
 
 const str = (v) => (v == null ? "" : String(v).trim());
 
@@ -43,21 +40,9 @@ function extractAllYears(text) {
 
 function wordToNum(w) {
   return ({
-    one: 1,
-    two: 2,
-    three: 3,
-    four: 4,
-    five: 5,
-    ek: 1,
-    ekta: 1,
-    dui: 2,
-    duita: 2,
-    tin: 3,
-    tinta: 3,
-    char: 4,
-    charta: 4,
-    pach: 5,
-    pachta: 5
+    one: 1, two: 2, three: 3, four: 4, five: 5,
+    ek: 1, ekta: 1, dui: 2, duita: 2, tin: 3, tinta: 3,
+    char: 4, charta: 4, pach: 5, pachta: 5
   })[(w || "").toLowerCase()] ?? null;
 }
 
@@ -72,10 +57,6 @@ function hasAny(text, arr) {
   return arr.some((x) => src.includes(String(x).toLowerCase()));
 }
 
-/* =====================================
-   FACT PARSER
-===================================== */
-
 function extractMarriageCount(text) {
   const patterns = [
     /\b(\d+|one|two|three|four|five|ek|ekta|dui|duita|tin|tinta|char|charta|pach|pachta)\s+marriages?\b/i,
@@ -87,7 +68,6 @@ function extractMarriageCount(text) {
     const m = String(text || "").match(rx);
     if (m) return parseFlexibleCountToken(m[1]);
   }
-
   return null;
 }
 
@@ -103,7 +83,6 @@ function extractBrokenMarriageCount(text) {
     const m = String(text || "").match(rx);
     if (m) return parseFlexibleCountToken(m[1]);
   }
-
   return null;
 }
 
@@ -128,25 +107,19 @@ function parseFactAnchors(facts, question) {
   let brokenMarriageCount = extractBrokenMarriageCount(text);
 
   let foreignEntryYear = extractYearNearKeyword(text, [
-    "uk",
-    "foreign",
-    "abroad",
-    "came",
-    "arrived",
-    "entry",
-    "moved",
-    "visa",
-    "immigration",
-    "bidesh"
+    "uk", "foreign", "abroad", "came", "arrived", "entry", "moved", "visa", "immigration", "bidesh"
   ]);
 
   let settlementYear = extractYearNearKeyword(text, [
-    "settlement",
-    "settled",
-    "stable",
-    "stabil",
-    "base",
-    "permanent"
+    "settlement", "settled", "stable", "stabil", "base", "permanent", "ilr granted", "settlement granted"
+  ]);
+
+  const settlementAppliedYear = extractYearNearKeyword(text, [
+    "ilr apply", "ilr applied", "settlement apply", "settlement applied", "applied settlement", "appeal"
+  ]);
+
+  const settlementRefusalYear = extractYearNearKeyword(text, [
+    "refusal", "refused", "rejected"
   ]);
 
   if (
@@ -157,23 +130,6 @@ function parseFactAnchors(facts, question) {
     foreignEntryYear = allYears[0];
   }
 
-  if (
-    settlementYear == null &&
-    hasAny(text, ["settlement", "settled", "stable", "stabil", "base", "permanent"]) &&
-    allYears.length >= 2
-  ) {
-    settlementYear = allYears[allYears.length - 1];
-  }
-
-  if (
-    settlementYear != null &&
-    foreignEntryYear != null &&
-    settlementYear === foreignEntryYear &&
-    allYears.length >= 2
-  ) {
-    settlementYear = allYears[allYears.length - 1];
-  }
-
   return {
     provided: !!(facts || question),
     raw_text: text,
@@ -181,6 +137,8 @@ function parseFactAnchors(facts, question) {
     broken_marriage_claim: brokenMarriageCount,
     foreign_entry_year_claim: foreignEntryYear,
     settlement_year_claim: settlementYear,
+    settlement_applied_year_claim: settlementAppliedYear,
+    settlement_refusal_year_claim: settlementRefusalYear,
     all_years: allYears
   };
 }
@@ -223,10 +181,17 @@ function buildTopLevelTruthSummary(core, astro, evidenceLayer) {
   };
 }
 
-function buildDeliverySafePacket(validationLayer = {}) {
+function buildDeliverySafePacket(validationLayer = {}, facts = {}) {
   const sectorState = validationLayer?.sector_state || {};
   const normalized_states = normalizeSectorStates(sectorState);
   const domain_truth_map = buildDomainTruthMap(sectorState);
+
+  // hard correction for settlement application/refusal reality
+  if (facts?.settlement_applied_year_claim && !facts?.settlement_year_claim) {
+    domain_truth_map.foreign.settlement = "ongoing";
+    normalized_states.settlement = "ongoing";
+  }
+
   const truth_lines = buildTruthLines(domain_truth_map);
   const final_truth_summary = buildFinalTruthSummary(domain_truth_map);
 
@@ -237,10 +202,6 @@ function buildDeliverySafePacket(validationLayer = {}) {
     final_truth_summary
   };
 }
-
-/* =====================================
-   MAIN HANDLER
-===================================== */
 
 export default async function handler(req, res) {
   try {
@@ -264,9 +225,6 @@ export default async function handler(req, res) {
       input.question = `${input.name} past history`;
     }
 
-    // ---------------------------------
-    // STEP 0: CORE CHART / INPUT ENGINE
-    // ---------------------------------
     const core = await buildChartCore(input, astroProvider);
 
     if (core.system_status !== "OK") {
@@ -277,22 +235,13 @@ export default async function handler(req, res) {
       });
     }
 
-    // ---------------------------------
-    // STEP 1: FACT PARSER
-    // ---------------------------------
     const facts = parseFactAnchors(input.facts, input.question);
 
-    // ---------------------------------
-    // STEP 2: QUESTION INTELLIGENCE (initial)
-    // ---------------------------------
     const stage1 = runIntelligenceLayer({
       domainResults: [],
       question: input.question
     });
 
-    // ---------------------------------
-    // STEP 3: ASTRO DOMAIN SCAN
-    // ---------------------------------
     const astro = runAstroLayer({
       evidence_packet: core.evidence_packet,
       facts,
@@ -301,44 +250,33 @@ export default async function handler(req, res) {
       birth_context: core.birth_context
     });
 
-    // ---------------------------------
-    // STEP 4: INTELLIGENCE RE-RANK ON ASTRO OUTPUT
-    // ---------------------------------
     const stage2 = runIntelligenceLayer({
       domainResults: astro.domain_results,
       question: input.question
     });
 
-    // ---------------------------------
-    // STEP 5: FINALIZER FIRST
-    // ---------------------------------
     const finalizedDomains = runEventFinalizer(stage2.ranked_domains);
 
-    // ---------------------------------
-    // STEP 6: VALIDATION LAYER
-    // ---------------------------------
     const validationLayer = runValidationLayer({
       question: input.question,
       finalizedDomains
     });
 
-    // ---------------------------------
-    // STEP 7: DELIVERY SAFE PACKET
-    // ---------------------------------
-    const deliverySafePacket = buildDeliverySafePacket(validationLayer);
+    const deliverySafePacket = buildDeliverySafePacket(validationLayer, facts);
 
-    // ---------------------------------
-    // STEP 8: TIMELINE FROM FINALIZED DOMAINS
-    // ---------------------------------
+    const identityPacket = buildIdentityPacket({
+      input,
+      subjectContext: core.subject_context,
+      birthContext: core.birth_context,
+      evidencePacket: core.evidence_packet
+    });
+
     const master_timeline = buildTimeline({
       ranked_domains: finalizedDomains,
       birth_context: core.birth_context,
       subject_context: core.subject_context
     });
 
-    // ---------------------------------
-    // STEP 9: EVIDENCE / FORENSIC OUTPUT
-    // ---------------------------------
     const evidenceLayer = runEvidenceLayer({
       input,
       facts,
@@ -353,9 +291,6 @@ export default async function handler(req, res) {
 
     const topLevelTruthSummary = buildTopLevelTruthSummary(core, astro, evidenceLayer);
 
-    // ---------------------------------
-    // FINAL PAYLOAD
-    // ---------------------------------
     const payload = {
       engine_status: "PAST_ORACLE_UNIVERSAL_V5",
       system_status: "OK",
@@ -379,12 +314,10 @@ export default async function handler(req, res) {
       name_hints: astro.name_hints || {},
       validation_layer: validationLayer,
 
+      identity_packet: identityPacket,
       delivery_safe_packet: deliverySafePacket,
 
-      top_ranked_domains: evidenceLayer.ranked_domains
-        .slice(0, 12)
-        .map(minifyDomain),
-
+      top_ranked_domains: evidenceLayer.ranked_domains.slice(0, 12).map(minifyDomain),
       domain_results: evidenceLayer.ranked_domains,
       exact_domain_summary: evidenceLayer.exact_domain_summary,
 
@@ -407,6 +340,7 @@ export default async function handler(req, res) {
         precision_mode: core.birth_context?.precision_mode || null,
         truth_summary: topLevelTruthSummary,
         validation_layer: validationLayer,
+        identity_packet: identityPacket,
         delivery_safe_packet: deliverySafePacket,
         project_paste_block: evidenceLayer.project_paste_block
       });
@@ -421,13 +355,12 @@ export default async function handler(req, res) {
         precision_mode: core.birth_context?.precision_mode || null,
         truth_summary: topLevelTruthSummary,
         validation_layer: validationLayer,
+        identity_packet: identityPacket,
         delivery_safe_packet: deliverySafePacket,
         summary: {
           primary_domain: stage2.question_profile.primary_domain,
           total_events: evidenceLayer.event_summary.total_estimated_events,
-          top_domains: evidenceLayer.ranked_domains
-            .slice(0, 5)
-            .map((d) => d.domain_label),
+          top_domains: evidenceLayer.ranked_domains.slice(0, 5).map((d) => d.domain_label),
 
           relationship: {
             marriage_count: evidenceLayer.event_summary.relationship?.marriage_count ?? 0,
