@@ -1,6 +1,6 @@
 // api/past-oracle.js
 // UNIVERSAL HARD-LOCK ORCHESTRATOR VERSION
-// FULL REPLACEMENT - STATE NORMALIZER + DELIVERY SAFE PACKET ENABLED
+// FULL REPLACEMENT WITH EVENT FINALIZER WIRED
 
 import { buildChartCore } from "../lib/chart-core.js";
 import { astroProvider } from "../lib/provider-adapter.js";
@@ -8,15 +8,6 @@ import { runIntelligenceLayer } from "../lib/layer-intelligence.js";
 import { runAstroLayer, buildTimeline } from "../lib/layer-astro.js";
 import { runEvidenceLayer } from "../lib/layer-evidence.js";
 import { runEventFinalizer } from "../lib/event-finalizer.js";
-import { runValidationLayer } from "../lib/layer-validation.js";
-import {
-  normalizeSectorStates,
-  buildDomainTruthMap
-} from "../lib/state-normalizer.js";
-import {
-  buildTruthLines,
-  buildFinalTruthSummary
-} from "../lib/delivery-mapper.js";
 
 /* =====================================
    BASIC HELPERS
@@ -195,46 +186,7 @@ function minifyDomain(d) {
     major_event_count: d.major_event_count,
     broken_event_count: d.broken_event_count,
     active_event_count: d.active_event_count,
-    final_state: d.final_state || null,
-    pattern_mode_active: !!d.pattern_mode_active,
-    exact_timeline_allowed: d.exact_timeline_allowed !== false,
-    direct_evidence_count: Number(d.direct_evidence_count || 0),
-    pattern_evidence_count: Number(d.pattern_evidence_count || 0)
-  };
-}
-
-function buildTopLevelTruthSummary(core, astro, evidenceLayer) {
-  const modeFlags = astro?.mode_flags || {};
-  const truthSummary = evidenceLayer?.event_summary?.truth_summary || {};
-
-  return {
-    subject_mode: core?.subject_context?.subject_mode || null,
-    identity_depth: core?.subject_context?.identity_depth || null,
-    identity_confidence: core?.subject_context?.identity_confidence || null,
-    precision_mode: core?.birth_context?.precision_mode || null,
-    weak_timeline_mode: !!(modeFlags.isNameOnly || modeFlags.isNameContext),
-    exact_timeline_allowed: !!truthSummary.exact_timeline_allowed,
-    truth_level: truthSummary.truth_level || null,
-    direct_evidence_count: truthSummary.direct_evidence_count ?? 0,
-    pattern_confirmed_count: truthSummary.pattern_confirmed_count ?? 0,
-    repeated_pattern_count: truthSummary.repeated_pattern_count ?? 0,
-    likely_history_count: truthSummary.likely_history_count ?? 0,
-    name_pattern_count: truthSummary.name_pattern_count ?? 0
-  };
-}
-
-function buildDeliverySafePacket(validationLayer = {}) {
-  const sectorState = validationLayer?.sector_state || {};
-  const normalized_states = normalizeSectorStates(sectorState);
-  const domain_truth_map = buildDomainTruthMap(sectorState);
-  const truth_lines = buildTruthLines(domain_truth_map);
-  const final_truth_summary = buildFinalTruthSummary(domain_truth_map);
-
-  return {
-    normalized_states,
-    domain_truth_map,
-    truth_lines,
-    final_truth_summary
+    final_state: d.final_state || null
   };
 }
 
@@ -260,10 +212,6 @@ export default async function handler(req, res) {
       current_datetime_iso: str(q.current_datetime_iso)
     };
 
-    if (!input.question && input.name) {
-      input.question = `${input.name} past history`;
-    }
-
     // ---------------------------------
     // STEP 0: CORE CHART / INPUT ENGINE
     // ---------------------------------
@@ -271,7 +219,7 @@ export default async function handler(req, res) {
 
     if (core.system_status !== "OK") {
       return res.status(400).json({
-        engine_status: "PAST_ORACLE_UNIVERSAL_V5",
+        engine_status: "PAST_ORACLE_UNIVERSAL_V2",
         system_status: "INPUT_ERROR",
         details: core
       });
@@ -291,14 +239,12 @@ export default async function handler(req, res) {
     });
 
     // ---------------------------------
-    // STEP 3: ASTRO DOMAIN SCAN
+    // STEP 3: ASTRO DOMAIN SCAN / EVENT BUILD
     // ---------------------------------
     const astro = runAstroLayer({
       evidence_packet: core.evidence_packet,
       facts,
-      question_profile: stage1.question_profile,
-      subject_context: core.subject_context,
-      birth_context: core.birth_context
+      question_profile: stage1.question_profile
     });
 
     // ---------------------------------
@@ -310,63 +256,39 @@ export default async function handler(req, res) {
     });
 
     // ---------------------------------
-    // STEP 5: FINALIZER FIRST
-    // ---------------------------------
-    const finalizedDomains = runEventFinalizer(stage2.ranked_domains);
-
-    // ---------------------------------
-    // STEP 6: VALIDATION LAYER
-    // ---------------------------------
-    const validationLayer = runValidationLayer({
-      question: input.question,
-      finalizedDomains
-    });
-
-    // ---------------------------------
-    // STEP 7: DELIVERY SAFE PACKET
-    // ---------------------------------
-    const deliverySafePacket = buildDeliverySafePacket(validationLayer);
-
-    // ---------------------------------
-    // STEP 8: TIMELINE FROM FINALIZED DOMAINS
+    // STEP 5: TIMELINE
     // ---------------------------------
     const master_timeline = buildTimeline({
-      ranked_domains: finalizedDomains,
-      birth_context: core.birth_context,
-      subject_context: core.subject_context
+      ranked_domains: stage2.ranked_domains,
+      birth_context: core.birth_context
     });
 
     // ---------------------------------
-    // STEP 9: EVIDENCE / FORENSIC OUTPUT
+    // STEP 6: EVIDENCE / FORENSIC OUTPUT
     // ---------------------------------
     const evidenceLayer = runEvidenceLayer({
       input,
       facts,
       question_profile: stage2.question_profile,
-      ranked_domains: finalizedDomains,
+      ranked_domains: stage2.ranked_domains,
       master_timeline,
-      carryover: stage2.carryover,
-      validation_layer: validationLayer,
-      subject_context: core.subject_context,
-      birth_context: core.birth_context
+      carryover: stage2.carryover
     });
 
-    const topLevelTruthSummary = buildTopLevelTruthSummary(core, astro, evidenceLayer);
+    // ---------------------------------
+    // STEP 7: FINAL EVENT STATE HARD LOCK
+    // ---------------------------------
+    const finalizedDomains = runEventFinalizer(evidenceLayer.ranked_domains);
 
     // ---------------------------------
     // FINAL PAYLOAD
     // ---------------------------------
     const payload = {
-      engine_status: "PAST_ORACLE_UNIVERSAL_V5",
+      engine_status: "PAST_ORACLE_UNIVERSAL_V2",
       system_status: "OK",
 
-      mode: core.subject_context?.question_mode || "GENERAL",
-      subject_mode: core.subject_context?.subject_mode || null,
-      identity_depth: core.subject_context?.identity_depth || null,
-      precision_mode: core.birth_context?.precision_mode || null,
-
+      mode: core.mode,
       input_normalized: core.input_normalized,
-      subject_context: core.subject_context,
       birth_context: core.birth_context,
       current_context: core.current_context,
 
@@ -375,22 +297,16 @@ export default async function handler(req, res) {
       linked_domain_expansion: stage2.linked_domain_expansion,
 
       evidence_normalized: astro.evidence_normalized,
-      mode_flags: astro.mode_flags || {},
-      name_hints: astro.name_hints || {},
-      validation_layer: validationLayer,
 
-      delivery_safe_packet: deliverySafePacket,
-
-      top_ranked_domains: evidenceLayer.ranked_domains
+      top_ranked_domains: finalizedDomains
         .slice(0, 12)
         .map(minifyDomain),
 
-      domain_results: evidenceLayer.ranked_domains,
+      domain_results: finalizedDomains,
       exact_domain_summary: evidenceLayer.exact_domain_summary,
 
       event_summary: evidenceLayer.event_summary,
-      truth_summary: topLevelTruthSummary,
-      master_timeline: evidenceLayer.master_timeline,
+      master_timeline,
       current_carryover: stage2.carryover,
       validation_block: evidenceLayer.validation_block,
       forensic_verdict: evidenceLayer.forensic_verdict,
@@ -400,32 +316,20 @@ export default async function handler(req, res) {
 
     if (input.format === "project") {
       return res.status(200).json({
-        engine_status: "PAST_ORACLE_UNIVERSAL_V5",
+        engine_status: "PAST_ORACLE_UNIVERSAL_V2",
         output_format: "project",
-        subject_mode: core.subject_context?.subject_mode || null,
-        identity_depth: core.subject_context?.identity_depth || null,
-        precision_mode: core.birth_context?.precision_mode || null,
-        truth_summary: topLevelTruthSummary,
-        validation_layer: validationLayer,
-        delivery_safe_packet: deliverySafePacket,
         project_paste_block: evidenceLayer.project_paste_block
       });
     }
 
     if (input.format === "compact") {
       return res.status(200).json({
-        engine_status: "PAST_ORACLE_UNIVERSAL_V5",
+        engine_status: "PAST_ORACLE_UNIVERSAL_V2",
         output_format: "compact",
-        subject_mode: core.subject_context?.subject_mode || null,
-        identity_depth: core.subject_context?.identity_depth || null,
-        precision_mode: core.birth_context?.precision_mode || null,
-        truth_summary: topLevelTruthSummary,
-        validation_layer: validationLayer,
-        delivery_safe_packet: deliverySafePacket,
         summary: {
           primary_domain: stage2.question_profile.primary_domain,
           total_events: evidenceLayer.event_summary.total_estimated_events,
-          top_domains: evidenceLayer.ranked_domains
+          top_domains: finalizedDomains
             .slice(0, 5)
             .map((d) => d.domain_label),
 
@@ -454,10 +358,6 @@ export default async function handler(req, res) {
           money: evidenceLayer.event_summary.money?.money_status ?? "UNKNOWN",
           conflict: evidenceLayer.event_summary.conflict?.conflict_status ?? "UNKNOWN",
 
-          timing_summary: evidenceLayer.event_summary.timing_summary || {},
-          truth_summary: evidenceLayer.event_summary.truth_summary || {},
-          recognition_lines: evidenceLayer.event_summary.recognition_lines || [],
-
           current_carryover: stage2.carryover.present_carryover_detected
         },
         exact_domain_summary: evidenceLayer.exact_domain_summary,
@@ -469,7 +369,7 @@ export default async function handler(req, res) {
     return res.status(200).json(payload);
   } catch (error) {
     return res.status(500).json({
-      engine_status: "PAST_ORACLE_UNIVERSAL_V5",
+      engine_status: "PAST_ORACLE_UNIVERSAL_V2",
       system_status: "ERROR",
       error_message: error instanceof Error ? error.message : "Unknown error"
     });
