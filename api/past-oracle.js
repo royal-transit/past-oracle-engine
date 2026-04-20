@@ -1,10 +1,11 @@
 // api/past-oracle.js
-// FULL REPLACEMENT — UNIVERSAL_PAST_NANO_SCANNER_V5
+// FULL REPLACEMENT — UNIVERSAL_PAST_NANO_SCANNER_V6
 // HARD CONSISTENCY LOCK
 // NO PARTIAL ANYWHERE
 // DOMAIN-SPECIFIC YEAR BINDING
 // SETTLEMENT != FOREIGN ENTRY
 // ROUTE SHIFT != EDUCATION
+// EDUCATION YEAR STRICT FIX
 
 import { buildChartCore } from "../lib/chart-core.js";
 import { astroProvider } from "../lib/provider-adapter.js";
@@ -20,7 +21,7 @@ import { correctIdentityPacket } from "../lib/domain-corrector.js";
    CONSTANTS
 ===================================== */
 
-const ENGINE_STATUS = "UNIVERSAL_PAST_NANO_SCANNER_V5";
+const ENGINE_STATUS = "UNIVERSAL_PAST_NANO_SCANNER_V6";
 
 const FINAL_STATUS = {
   EXECUTED: "EXECUTED",
@@ -93,7 +94,7 @@ function yearNear(src, keywords) {
   for (const kw of keywords) {
     const idx = text.toLowerCase().indexOf(String(kw).toLowerCase());
     if (idx === -1) continue;
-    const tail = text.slice(idx, idx + 200);
+    const tail = text.slice(idx, idx + 220);
     const m = tail.match(/\b(19|20)\d{2}\b/);
     if (m) return Number(m[0]);
   }
@@ -276,7 +277,9 @@ function parseFactAnchors(facts, question) {
     "college started",
     "university started",
     "study started",
-    "student in"
+    "started study",
+    "enrolled in university",
+    "enrolled in college"
   ]);
 
   const property_year_claim = yearNear(text, [
@@ -391,6 +394,12 @@ function isDivorceFamily(domainKey) {
   return up(domainKey) === "DIVORCE";
 }
 
+function deriveEducationYear(facts) {
+  if (facts.study_start_year_claim != null) return facts.study_start_year_claim;
+  if (facts.student_visa_entry_year_claim != null) return facts.student_visa_entry_year_claim;
+  return null;
+}
+
 function deriveYearFromFacts(domainKey, facts) {
   if (isForeignFamily(domainKey)) {
     return facts.foreign_entry_year_claim ?? null;
@@ -419,7 +428,7 @@ function deriveYearFromFacts(domainKey, facts) {
   }
 
   if (isEducationFamily(domainKey)) {
-    return facts.study_start_year_claim ?? facts.student_visa_entry_year_claim ?? null;
+    return deriveEducationYear(facts);
   }
 
   if (isPropertyFamily(domainKey)) {
@@ -473,13 +482,7 @@ function mapEvidenceType(rawType, facts, domainKey) {
     return EVIDENCE.FACT_ANCHORED;
   }
 
-  if (
-    isEducationFamily(domainKey) &&
-    (
-      facts.study_start_year_claim != null ||
-      facts.student_visa_entry_year_claim != null
-    )
-  ) {
+  if (isEducationFamily(domainKey) && deriveEducationYear(facts) != null) {
     return EVIDENCE.FACT_ANCHORED;
   }
 
@@ -536,8 +539,7 @@ function decideFinalStatus({ evidenceType, domainKey, facts }) {
     }
 
     if (isEducationFamily(domainKey)) {
-      if (facts.study_start_year_claim != null) return FINAL_STATUS.EXECUTED;
-      if (facts.student_visa_entry_year_claim != null) return FINAL_STATUS.EXECUTED;
+      if (deriveEducationYear(facts) != null) return FINAL_STATUS.EXECUTED;
       return FINAL_STATUS.UNKNOWN;
     }
 
@@ -604,6 +606,7 @@ function refinedEventType(domainKey, facts, fallbackType) {
   if (isEducationFamily(domainKey)) {
     if (facts.study_start_year_claim != null) return "study / university phase";
     if (facts.student_visa_entry_year_claim != null) return "student visa entry phase";
+    return "education phase";
   }
 
   return fallbackType || "domain event";
@@ -667,14 +670,18 @@ function rebuildDomainResult(domain, facts) {
     out.primary_exact_event = normalizeEvent(out.primary_exact_event, out.domain_key, facts);
     out.primary_exact_event.date_marker = deriveYearFromFacts(out.domain_key, facts);
     out.primary_exact_event.month_or_phase =
-      out.primary_exact_event.date_marker != null ? "year-anchored phase" : (out.primary_exact_event.month_or_phase || "phase only");
+      out.primary_exact_event.date_marker != null
+        ? "year-anchored phase"
+        : (out.primary_exact_event.month_or_phase || "phase only");
   }
 
   out.alternative_exact_events = safeArray(out.alternative_exact_events).map((e) => {
     const normalized = normalizeEvent(e, out.domain_key, facts);
     normalized.date_marker = deriveYearFromFacts(out.domain_key, facts);
     normalized.month_or_phase =
-      normalized.date_marker != null ? "year-anchored phase" : (normalized.month_or_phase || "phase only");
+      normalized.date_marker != null
+        ? "year-anchored phase"
+        : (normalized.month_or_phase || "phase only");
     return normalized;
   });
 
@@ -879,6 +886,8 @@ function buildRecognitionLines(sectorState) {
 }
 
 function buildSummary(domainMap, sectorState, evidenceLayer, input, facts) {
+  const educationYear = deriveEducationYear(facts);
+
   return {
     primary_domain: evidenceLayer?.event_summary?.primary_domain || "GENERAL",
     total_events: safeArray(evidenceLayer?.exact_domain_summary).length,
@@ -907,8 +916,8 @@ function buildSummary(domainMap, sectorState, evidenceLayer, input, facts) {
       education_active: sectorState.education === FINAL_STATUS.EXECUTED,
       job_active: sectorState.job === FINAL_STATUS.EXECUTED,
       business_active: sectorState.business === FINAL_STATUS.EXECUTED,
-      education_year: domainMap.education?.year ?? null,
-      education_age: ageFromYear(domainMap.education?.year, input.dob),
+      education_year: educationYear,
+      education_age: ageFromYear(educationYear, input.dob),
       job_year: domainMap.job?.year ?? null,
       job_age: ageFromYear(domainMap.job?.year, input.dob),
       business_year: domainMap.business?.year ?? null,
