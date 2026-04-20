@@ -1,9 +1,9 @@
 // api/past-oracle.js
-// FULL REPLACEMENT — UNIVERSAL_PAST_NANO_SCANNER_V3
+// FULL REPLACEMENT — UNIVERSAL_PAST_NANO_SCANNER_V4
 // HARD CONSISTENCY LOCK
 // NO PARTIAL ANYWHERE
-// SINGLE SOURCE OF TRUTH
-// PATTERN != REALITY
+// DOMAIN-SPECIFIC YEAR BINDING
+// SETTLEMENT != FOREIGN ENTRY
 
 import { buildChartCore } from "../lib/chart-core.js";
 import { astroProvider } from "../lib/provider-adapter.js";
@@ -19,7 +19,7 @@ import { correctIdentityPacket } from "../lib/domain-corrector.js";
    CONSTANTS
 ===================================== */
 
-const ENGINE_STATUS = "UNIVERSAL_PAST_NANO_SCANNER_V3";
+const ENGINE_STATUS = "UNIVERSAL_PAST_NANO_SCANNER_V4";
 
 const FINAL_STATUS = {
   EXECUTED: "EXECUTED",
@@ -92,7 +92,7 @@ function yearNear(src, keywords) {
   for (const kw of keywords) {
     const idx = text.toLowerCase().indexOf(String(kw).toLowerCase());
     if (idx === -1) continue;
-    const tail = text.slice(idx, idx + 160);
+    const tail = text.slice(idx, idx + 180);
     const m = tail.match(/\b(19|20)\d{2}\b/);
     if (m) return Number(m[0]);
   }
@@ -211,7 +211,8 @@ function parseFactAnchors(facts, question) {
     "settlement granted",
     "settled",
     "permanent approved",
-    "citizenship granted"
+    "citizenship granted",
+    "ilr approved"
   ]);
 
   const settlement_applied_year_claim = yearNear(text, [
@@ -326,133 +327,240 @@ function parseFactAnchors(facts, question) {
 }
 
 /* =====================================
+   DOMAIN HELPERS
+===================================== */
+
+function isForeignFamily(domainKey) {
+  return ["FOREIGN", "IMMIGRATION", "VISA"].includes(up(domainKey));
+}
+
+function isSettlementFamily(domainKey) {
+  return up(domainKey) === "SETTLEMENT";
+}
+
+function isLegalFamily(domainKey) {
+  return up(domainKey) === "LEGAL" || up(domainKey) === "DOCUMENT";
+}
+
+function isJobFamily(domainKey) {
+  return up(domainKey) === "JOB";
+}
+
+function isBusinessFamily(domainKey) {
+  return up(domainKey) === "BUSINESS";
+}
+
+function isEducationFamily(domainKey) {
+  return up(domainKey) === "EDUCATION";
+}
+
+function isPropertyFamily(domainKey) {
+  return up(domainKey) === "PROPERTY";
+}
+
+function isDebtFamily(domainKey) {
+  return up(domainKey) === "DEBT";
+}
+
+function isMarriageFamily(domainKey) {
+  return up(domainKey) === "MARRIAGE";
+}
+
+function isDivorceFamily(domainKey) {
+  return up(domainKey) === "DIVORCE";
+}
+
+function deriveYearFromFacts(domainKey, facts) {
+  if (isForeignFamily(domainKey)) {
+    return facts.foreign_entry_year_claim ?? null;
+  }
+
+  if (isSettlementFamily(domainKey)) {
+    return (
+      facts.settlement_year_claim ??
+      facts.appeal_year_claim ??
+      facts.settlement_applied_year_claim ??
+      facts.settlement_refusal_year_claim ??
+      null
+    );
+  }
+
+  if (isLegalFamily(domainKey)) {
+    return facts.appeal_year_claim ?? facts.settlement_refusal_year_claim ?? null;
+  }
+
+  if (isJobFamily(domainKey)) {
+    return facts.job_start_year_claim ?? null;
+  }
+
+  if (isBusinessFamily(domainKey)) {
+    return facts.business_start_year_claim ?? null;
+  }
+
+  if (isEducationFamily(domainKey)) {
+    return facts.study_start_year_claim ?? null;
+  }
+
+  if (isPropertyFamily(domainKey)) {
+    return facts.property_year_claim ?? null;
+  }
+
+  if (isDebtFamily(domainKey)) {
+    return facts.debt_year_claim ?? null;
+  }
+
+  if (isMarriageFamily(domainKey) && facts.marriage_count_claim) {
+    return null;
+  }
+
+  if (isDivorceFamily(domainKey) && facts.broken_marriage_count) {
+    return null;
+  }
+
+  return null;
+}
+
+/* =====================================
    EVIDENCE + STATUS LAW
 ===================================== */
 
-function mapEvidenceType(rawType, facts, domainKey, event) {
+function mapEvidenceType(rawType, facts, domainKey) {
   const t = up(rawType);
-  const dk = up(domainKey);
-  const evt = low(event?.event_type);
-
-  const hasForeignAnchor =
-    facts.foreign_entry_year_claim != null &&
-    ["FOREIGN", "IMMIGRATION", "VISA"].includes(dk);
-
-  const hasSettlementAnchor =
-    facts.settlement_year_claim != null ||
-    facts.settlement_applied_year_claim != null ||
-    facts.settlement_refusal_year_claim != null ||
-    facts.appeal_year_claim != null;
-
-  const hasJobAnchor = facts.job_start_year_claim != null && dk === "JOB";
-  const hasBusinessAnchor = facts.business_start_year_claim != null && dk === "BUSINESS";
-  const hasStudyAnchor = facts.study_start_year_claim != null && dk === "EDUCATION";
-  const hasPropertyAnchor = facts.property_year_claim != null && dk === "PROPERTY";
-  const hasDebtAnchor = facts.debt_year_claim != null && dk === "DEBT";
-  const hasMarriageAnchor = facts.marriage_count_claim != null && dk === "MARRIAGE";
 
   if (t === "DIRECT") return EVIDENCE.DIRECT_FACT;
 
+  if (isForeignFamily(domainKey) && facts.foreign_entry_year_claim != null) {
+    return EVIDENCE.FACT_ANCHORED;
+  }
+
   if (
-    hasForeignAnchor ||
-    (dk === "SETTLEMENT" && hasSettlementAnchor) ||
-    hasJobAnchor ||
-    hasBusinessAnchor ||
-    hasStudyAnchor ||
-    hasPropertyAnchor ||
-    hasDebtAnchor ||
-    hasMarriageAnchor
+    isSettlementFamily(domainKey) &&
+    (
+      facts.settlement_year_claim != null ||
+      facts.settlement_applied_year_claim != null ||
+      facts.settlement_refusal_year_claim != null ||
+      facts.appeal_year_claim != null
+    )
   ) {
+    return EVIDENCE.FACT_ANCHORED;
+  }
+
+  if (
+    isLegalFamily(domainKey) &&
+    (facts.appeal_year_claim != null || facts.settlement_refusal_year_claim != null)
+  ) {
+    return EVIDENCE.FACT_ANCHORED;
+  }
+
+  if (isJobFamily(domainKey) && facts.job_start_year_claim != null) {
+    return EVIDENCE.FACT_ANCHORED;
+  }
+
+  if (isBusinessFamily(domainKey) && facts.business_start_year_claim != null) {
+    return EVIDENCE.FACT_ANCHORED;
+  }
+
+  if (isEducationFamily(domainKey) && facts.study_start_year_claim != null) {
+    return EVIDENCE.FACT_ANCHORED;
+  }
+
+  if (isPropertyFamily(domainKey) && facts.property_year_claim != null) {
+    return EVIDENCE.FACT_ANCHORED;
+  }
+
+  if (isDebtFamily(domainKey) && facts.debt_year_claim != null) {
+    return EVIDENCE.FACT_ANCHORED;
+  }
+
+  if (isMarriageFamily(domainKey) && facts.marriage_count_claim != null) {
+    return EVIDENCE.FACT_ANCHORED;
+  }
+
+  if (isDivorceFamily(domainKey) && facts.broken_marriage_count != null) {
     return EVIDENCE.FACT_ANCHORED;
   }
 
   if (t === "LIKELY_HISTORY") return EVIDENCE.PATTERN_ONLY;
   if (t === "NAME_PATTERN") return EVIDENCE.NAME_PATTERN;
 
-  if (evt.includes("process") || evt.includes("pressure") || evt.includes("phase")) {
-    return EVIDENCE.PATTERN_ONLY;
-  }
-
   return EVIDENCE.UNKNOWN;
 }
 
-function decideFinalStatus({ evidenceType, domainKey, facts, event }) {
-  const dk = up(domainKey);
-  const evt = low(event?.event_type);
+function decideFinalStatus({ evidenceType, domainKey, facts }) {
+  if (evidenceType === EVIDENCE.DIRECT_FACT) {
+    if (isSettlementFamily(domainKey)) {
+      if (facts.settlement_year_claim != null) return FINAL_STATUS.EXECUTED;
+      if (facts.appeal_year_claim != null || facts.settlement_applied_year_claim != null) {
+        return FINAL_STATUS.IN_PROGRESS;
+      }
+      if (facts.settlement_refusal_year_claim != null) return FINAL_STATUS.NOT_EXECUTED;
+      return FINAL_STATUS.UNKNOWN;
+    }
 
-  const hasCompletion =
-    evt.includes("granted") ||
-    evt.includes("entry event") ||
-    evt.includes("marriage event") ||
-    evt.includes("business activity") ||
-    evt.includes("job event") ||
-    evt.includes("education event") ||
-    evt.includes("property") ||
-    evt.includes("debt event");
+    if (isForeignFamily(domainKey)) {
+      if (facts.foreign_entry_year_claim != null) return FINAL_STATUS.EXECUTED;
+      return FINAL_STATUS.UNKNOWN;
+    }
 
-  const hasProcess =
-    evt.includes("process") ||
-    evt.includes("ongoing") ||
-    evt.includes("appeal") ||
-    evt.includes("applied") ||
-    evt.includes("application") ||
-    evt.includes("phase") ||
-    evt.includes("pressure");
+    if (isLegalFamily(domainKey)) {
+      if (facts.appeal_year_claim != null) return FINAL_STATUS.IN_PROGRESS;
+      if (facts.settlement_refusal_year_claim != null) return FINAL_STATUS.EXECUTED;
+      return FINAL_STATUS.UNKNOWN;
+    }
 
-  const hasNegativeCompletion =
-    evt.includes("refusal") ||
-    evt.includes("denied") ||
-    evt.includes("rejected");
-
-  if (evidenceType === EVIDENCE.DIRECT_FACT && hasCompletion) {
     return FINAL_STATUS.EXECUTED;
   }
 
-  if (evidenceType === EVIDENCE.DIRECT_FACT && hasProcess) {
-    return FINAL_STATUS.IN_PROGRESS;
-  }
-
   if (evidenceType === EVIDENCE.FACT_ANCHORED) {
-    if (dk === "SETTLEMENT") {
+    if (isForeignFamily(domainKey)) {
+      if (facts.foreign_entry_year_claim != null) return FINAL_STATUS.EXECUTED;
+      return FINAL_STATUS.UNKNOWN;
+    }
+
+    if (isSettlementFamily(domainKey)) {
       if (facts.settlement_year_claim != null) return FINAL_STATUS.EXECUTED;
-      if (facts.appeal_year_claim != null) return FINAL_STATUS.IN_PROGRESS;
-      if (facts.settlement_applied_year_claim != null) return FINAL_STATUS.IN_PROGRESS;
+      if (facts.appeal_year_claim != null || facts.settlement_applied_year_claim != null) {
+        return FINAL_STATUS.IN_PROGRESS;
+      }
       if (facts.settlement_refusal_year_claim != null) return FINAL_STATUS.NOT_EXECUTED;
+      return FINAL_STATUS.UNKNOWN;
     }
 
-    if (["FOREIGN", "IMMIGRATION", "VISA"].includes(dk) && facts.foreign_entry_year_claim != null) {
+    if (isLegalFamily(domainKey)) {
+      if (facts.appeal_year_claim != null) return FINAL_STATUS.IN_PROGRESS;
+      if (facts.settlement_refusal_year_claim != null) return FINAL_STATUS.EXECUTED;
+      return FINAL_STATUS.UNKNOWN;
+    }
+
+    if (isJobFamily(domainKey) && facts.job_start_year_claim != null) {
       return FINAL_STATUS.EXECUTED;
     }
 
-    if (dk === "MARRIAGE" && facts.marriage_count_claim > 0) {
+    if (isBusinessFamily(domainKey) && facts.business_start_year_claim != null) {
       return FINAL_STATUS.EXECUTED;
     }
 
-    if (dk === "DIVORCE" && facts.broken_marriage_count > 0) {
+    if (isEducationFamily(domainKey) && facts.study_start_year_claim != null) {
       return FINAL_STATUS.EXECUTED;
     }
 
-    if (dk === "JOB" && facts.job_start_year_claim != null) {
+    if (isPropertyFamily(domainKey) && facts.property_year_claim != null) {
       return FINAL_STATUS.EXECUTED;
     }
 
-    if (dk === "BUSINESS" && facts.business_start_year_claim != null) {
+    if (isDebtFamily(domainKey) && facts.debt_year_claim != null) {
       return FINAL_STATUS.EXECUTED;
     }
 
-    if (dk === "EDUCATION" && facts.study_start_year_claim != null) {
-      return FINAL_STATUS.EXECUTED;
+    if (isMarriageFamily(domainKey)) {
+      return facts.marriage_count_claim > 0 ? FINAL_STATUS.EXECUTED : FINAL_STATUS.NOT_EXECUTED;
     }
 
-    if (dk === "PROPERTY" && facts.property_year_claim != null) {
-      return FINAL_STATUS.EXECUTED;
+    if (isDivorceFamily(domainKey)) {
+      return facts.broken_marriage_count > 0 ? FINAL_STATUS.EXECUTED : FINAL_STATUS.NOT_EXECUTED;
     }
 
-    if (dk === "DEBT" && facts.debt_year_claim != null) {
-      return FINAL_STATUS.EXECUTED;
-    }
-
-    return FINAL_STATUS.IN_PROGRESS;
+    return FINAL_STATUS.UNKNOWN;
   }
 
   if (evidenceType === EVIDENCE.PATTERN_CONFIRMED) {
@@ -464,10 +572,6 @@ function decideFinalStatus({ evidenceType, domainKey, facts, event }) {
   }
 
   if (evidenceType === EVIDENCE.NAME_PATTERN) {
-    return FINAL_STATUS.NOT_EXECUTED;
-  }
-
-  if (hasNegativeCompletion) {
     return FINAL_STATUS.NOT_EXECUTED;
   }
 
@@ -493,12 +597,11 @@ function deliveryStateFromFinal(status) {
 
 function normalizeEvent(event, domainKey, facts) {
   const out = clone(event);
-  const mappedEvidence = mapEvidenceType(out?.evidence_type, facts, domainKey, out);
+  const mappedEvidence = mapEvidenceType(out?.evidence_type, facts, domainKey);
   const finalStatus = decideFinalStatus({
     evidenceType: mappedEvidence,
     domainKey,
-    facts,
-    event: out
+    facts
   });
 
   out.evidence_type = mappedEvidence;
@@ -506,21 +609,15 @@ function normalizeEvent(event, domainKey, facts) {
 
   if (finalStatus === FINAL_STATUS.EXECUTED) {
     out.trigger_phase = "event confirmed";
-  } else if (finalStatus === FINAL_STATUS.IN_PROGRESS) {
-    out.trigger_phase = "process active";
-  } else if (finalStatus === FINAL_STATUS.NOT_EXECUTED) {
-    out.trigger_phase = "no confirmed execution";
-  } else {
-    out.trigger_phase = "insufficient truth";
-  }
-
-  if (finalStatus === FINAL_STATUS.EXECUTED) {
     out.impact_summary = out.impact_summary || "event has definitively occurred";
   } else if (finalStatus === FINAL_STATUS.IN_PROGRESS) {
+    out.trigger_phase = "process active";
     out.impact_summary = "process is active but not completed";
   } else if (finalStatus === FINAL_STATUS.NOT_EXECUTED) {
+    out.trigger_phase = "no confirmed execution";
     out.impact_summary = "event not confirmed";
   } else {
+    out.trigger_phase = "insufficient truth";
     out.impact_summary = "insufficient truth to confirm event";
   }
 
@@ -541,30 +638,6 @@ function finalStateFromEvents(events) {
   return FINAL_STATUS.UNKNOWN;
 }
 
-function deriveYearFromFacts(domainKey, facts) {
-  const dk = up(domainKey);
-
-  if (["FOREIGN", "IMMIGRATION", "VISA"].includes(dk)) return facts.foreign_entry_year_claim ?? null;
-  if (dk === "SETTLEMENT") {
-    return (
-      facts.settlement_year_claim ??
-      facts.appeal_year_claim ??
-      facts.settlement_applied_year_claim ??
-      facts.settlement_refusal_year_claim ??
-      null
-    );
-  }
-  if (dk === "MARRIAGE") return null;
-  if (dk === "JOB") return facts.job_start_year_claim ?? null;
-  if (dk === "BUSINESS") return facts.business_start_year_claim ?? null;
-  if (dk === "EDUCATION") return facts.study_start_year_claim ?? null;
-  if (dk === "PROPERTY") return facts.property_year_claim ?? null;
-  if (dk === "DEBT") return facts.debt_year_claim ?? null;
-  if (dk === "LEGAL") return facts.appeal_year_claim ?? facts.settlement_refusal_year_claim ?? null;
-
-  return null;
-}
-
 function rebuildDomainResult(domain, facts) {
   const out = clone(domain);
   const normalizedEvents = safeArray(out.events).map((e) => normalizeEvent(e, out.domain_key, facts));
@@ -573,15 +646,17 @@ function rebuildDomainResult(domain, facts) {
 
   if (out.primary_exact_event) {
     out.primary_exact_event = normalizeEvent(out.primary_exact_event, out.domain_key, facts);
-    if (out.primary_exact_event.date_marker == null) {
-      out.primary_exact_event.date_marker = deriveYearFromFacts(out.domain_key, facts);
+    out.primary_exact_event.date_marker = deriveYearFromFacts(out.domain_key, facts);
+    if (out.primary_exact_event.date_marker != null) {
+      out.primary_exact_event.month_or_phase = "year-anchored phase";
     }
   }
 
   out.alternative_exact_events = safeArray(out.alternative_exact_events).map((e) => {
     const normalized = normalizeEvent(e, out.domain_key, facts);
-    if (normalized.date_marker == null) {
-      normalized.date_marker = deriveYearFromFacts(out.domain_key, facts);
+    normalized.date_marker = deriveYearFromFacts(out.domain_key, facts);
+    if (normalized.date_marker != null) {
+      normalized.month_or_phase = "year-anchored phase";
     }
     return normalized;
   });
@@ -622,7 +697,11 @@ function buildSectorState(domainMap) {
     marriage: domainMap.marriage?.final_state || FINAL_STATUS.UNKNOWN,
     divorce: domainMap.divorce?.final_state || FINAL_STATUS.UNKNOWN,
     multiple_marriage: domainMap.multiple_marriage?.final_state || FINAL_STATUS.UNKNOWN,
-    foreign: domainMap.foreign?.final_state || FINAL_STATUS.UNKNOWN,
+    foreign: pickState(
+      domainMap.foreign?.final_state,
+      domainMap.immigration?.final_state,
+      domainMap.visa?.final_state
+    ),
     settlement: domainMap.settlement?.final_state || FINAL_STATUS.UNKNOWN,
     immigration: domainMap.immigration?.final_state || FINAL_STATUS.UNKNOWN,
     visa: domainMap.visa?.final_state || FINAL_STATUS.UNKNOWN,
@@ -630,7 +709,7 @@ function buildSectorState(domainMap) {
     job: domainMap.job?.final_state || FINAL_STATUS.UNKNOWN,
     career: domainMap.career?.final_state || FINAL_STATUS.UNKNOWN,
     business: domainMap.business?.final_state || FINAL_STATUS.UNKNOWN,
-    money: pickState(domainMap.money?.final_state, domainMap.debt?.final_state, domainMap.gain?.final_state),
+    money: pickState(domainMap.money?.final_state, domainMap.debt?.final_state),
     property: domainMap.property?.final_state || FINAL_STATUS.UNKNOWN,
     health: domainMap.health?.final_state || FINAL_STATUS.UNKNOWN,
     mental: domainMap.mental?.final_state || FINAL_STATUS.UNKNOWN,
@@ -707,18 +786,27 @@ function buildDeliverySafePacket(sectorState) {
 
   const truth_lines = [];
 
-  if (normalized_states.foreign === "occurred") truth_lines.push("বিদেশে যাওয়ার ঘটনা ঘটেছে");
-  else if (normalized_states.foreign === "ongoing") truth_lines.push("বিদেশ সংক্রান্ত প্রক্রিয়া চলছে");
+  if (normalized_states.foreign === "occurred") {
+    truth_lines.push("বিদেশে যাওয়ার ঘটনা ঘটেছে");
+  } else if (normalized_states.foreign === "ongoing") {
+    truth_lines.push("বিদেশ সংক্রান্ত প্রক্রিয়া চলছে");
+  }
 
-  if (normalized_states.settlement === "occurred") truth_lines.push("স্থায়ীভাবে বসার বিষয় সম্পন্ন হয়েছে");
-  else if (normalized_states.settlement === "ongoing") truth_lines.push("স্থায়ীভাবে বসার বিষয় এখনো প্রক্রিয়ায় আছে");
+  if (normalized_states.settlement === "occurred") {
+    truth_lines.push("স্থায়ীভাবে বসার বিষয় সম্পন্ন হয়েছে");
+  } else if (normalized_states.settlement === "ongoing") {
+    truth_lines.push("স্থায়ীভাবে বসার বিষয় এখনো প্রক্রিয়ায় আছে");
+  }
 
-  if (normalized_states.business === "occurred") truth_lines.push("business line জীবনে উঠেছে");
-  if (normalized_states.money === "ongoing") truth_lines.push("টাকার line চলছে, কিন্তু steady না");
-  if (normalized_states.health === "ongoing") truth_lines.push("শরীরের চাপ এখনো পুরো কাটেনি");
-  if (normalized_states.mental === "ongoing") truth_lines.push("মনের চাপ এখনো পুরো কাটেনি");
-  if (normalized_states.legal === "ongoing") truth_lines.push("authority / legal line এখনো process-এ আছে");
-  if (normalized_states.legal === "occurred") truth_lines.push("authority / legal ঘটনা ঘটেছে");
+  if (normalized_states.legal === "ongoing") {
+    truth_lines.push("appeal বা legal process এখনো চলমান");
+  } else if (normalized_states.legal === "occurred") {
+    truth_lines.push("legal বা authority-সংক্রান্ত ঘটনা বাস্তবে ঘটেছে");
+  }
+
+  if (normalized_states.business === "occurred") {
+    truth_lines.push("business line জীবনে উঠেছে");
+  }
 
   return {
     normalized_states,
@@ -749,9 +837,7 @@ function buildRecognitionLines(sectorState) {
 
   if (
     sectorState.foreign === FINAL_STATUS.EXECUTED ||
-    sectorState.foreign === FINAL_STATUS.IN_PROGRESS ||
-    sectorState.immigration === FINAL_STATUS.EXECUTED ||
-    sectorState.immigration === FINAL_STATUS.IN_PROGRESS
+    sectorState.foreign === FINAL_STATUS.IN_PROGRESS
   ) {
     lines.push("জায়গা বদল বা বিদেশ-সংক্রান্ত লাইন জীবনে কাজ করেছে।");
   } else if (
@@ -765,7 +851,7 @@ function buildRecognitionLines(sectorState) {
     sectorState.legal === FINAL_STATUS.EXECUTED ||
     sectorState.legal === FINAL_STATUS.IN_PROGRESS
   ) {
-    lines.push("কাগজ, কর্তৃপক্ষ বা বিরোধের লাইন বাস্তবে সক্রিয় হয়েছে।");
+    lines.push("কাগজ, আপিল বা কর্তৃপক্ষের বিষয় বাস্তবে সক্রিয় হয়েছে।");
   } else if (sectorState.legal === FINAL_STATUS.UNKNOWN) {
     lines.push("কর্তৃপক্ষ বা বিরোধের বিষয়ে চাপের ইঙ্গিত আছে, কিন্তু নিশ্চিত ঘটনা ধরা যায়নি।");
   }
@@ -812,13 +898,16 @@ function buildSummary(domainMap, sectorState, evidenceLayer, input, facts) {
 
     foreign: {
       foreign_shift_count:
-        ["foreign", "immigration", "visa", "settlement"].filter(
+        ["foreign", "immigration", "visa", "settlement", "legal"].filter(
           (k) => domainMap[k]?.final_state === FINAL_STATUS.EXECUTED || domainMap[k]?.final_state === FINAL_STATUS.IN_PROGRESS
         ).length,
       foreign_entry_year: domainMap.foreign?.year ?? domainMap.immigration?.year ?? domainMap.visa?.year ?? null,
       foreign_entry_age: ageFromYear(domainMap.foreign?.year ?? domainMap.immigration?.year ?? domainMap.visa?.year, input.dob),
-      settlement_year: domainMap.settlement?.year ?? null,
-      settlement_age: ageFromYear(domainMap.settlement?.year, input.dob),
+      settlement_year: domainMap.settlement?.final_state === FINAL_STATUS.EXECUTED ? domainMap.settlement?.year ?? null : null,
+      settlement_age: ageFromYear(
+        domainMap.settlement?.final_state === FINAL_STATUS.EXECUTED ? domainMap.settlement?.year : null,
+        input.dob
+      ),
       refusal_year: facts.settlement_refusal_year_claim ?? null,
       refusal_age: ageFromYear(facts.settlement_refusal_year_claim, input.dob),
       appeal_year: facts.appeal_year_claim ?? null,
@@ -855,7 +944,9 @@ function buildVerdict(sectorState, truthSummary) {
     forensic_direction:
       `Universal scan final state: ` +
       `Relationship ${pickState(sectorState.marriage, sectorState.partnership)}. ` +
-      `Foreign ${pickState(sectorState.foreign, sectorState.immigration, sectorState.visa, sectorState.settlement)}. ` +
+      `Foreign ${sectorState.foreign}. ` +
+      `Settlement ${sectorState.settlement}. ` +
+      `Legal ${sectorState.legal}. ` +
       `Health ${pickState(sectorState.health, sectorState.mental)}. ` +
       `Money ${pickState(sectorState.money, sectorState.debt, sectorState.property)}. ` +
       `Truth level ${truthSummary?.truth_level || "UNKNOWN"}.`,
