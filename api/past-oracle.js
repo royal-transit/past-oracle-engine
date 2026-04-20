@@ -1,5 +1,5 @@
 // api/past-oracle.js
-// FULL REPLACEMENT — STABLE PAST ORACLE BASELINE V2
+// FULL REPLACEMENT — STABLE PAST ORACLE BASELINE V3
 
 import { buildChartCore } from "../lib/chart-core.js";
 import { astroProvider } from "../lib/provider-adapter.js";
@@ -169,12 +169,22 @@ function parseFactAnchors(facts, question) {
     "rejected"
   ]);
 
-  const appeal_year_claim = yearNear(text, [
+  let appeal_year_claim = yearNear(text, [
     "appeal",
     "appealed",
     "appeal ongoing",
     "appeal filed"
   ]);
+
+  if (
+    appeal_year_claim == null &&
+    hasAny(text, ["appeal", "appealed", "appeal ongoing", "appeal filed"])
+  ) {
+    appeal_year_claim =
+      settlement_refusal_year_claim ||
+      settlement_applied_year_claim ||
+      (Array.isArray(allYears) && allYears.length ? allYears[allYears.length - 1] : null);
+  }
 
   if (
     foreign_entry_year_claim == null &&
@@ -334,7 +344,7 @@ export default async function handler(req, res) {
 
     if (core?.system_status !== "OK") {
       return res.status(400).json({
-        engine_status: "PAST_ORACLE_BASELINE_V2",
+        engine_status: "PAST_ORACLE_BASELINE_V3",
         system_status: "INPUT_ERROR",
         details: core
       });
@@ -409,7 +419,7 @@ export default async function handler(req, res) {
     const topLevelTruthSummary = buildTopLevelTruthSummary(core, astro, evidenceLayer);
 
     const payload = {
-      engine_status: "PAST_ORACLE_BASELINE_V2",
+      engine_status: "PAST_ORACLE_BASELINE_V3",
       system_status: "OK",
 
       mode: core?.subject_context?.question_mode || "GENERAL",
@@ -453,7 +463,7 @@ export default async function handler(req, res) {
 
     if (input.format === "project") {
       return res.status(200).json({
-        engine_status: "PAST_ORACLE_BASELINE_V2",
+        engine_status: "PAST_ORACLE_BASELINE_V3",
         output_format: "project",
         subject_mode: core?.subject_context?.subject_mode || null,
         identity_depth: core?.subject_context?.identity_depth || null,
@@ -468,7 +478,7 @@ export default async function handler(req, res) {
 
     if (input.format === "compact") {
       return res.status(200).json({
-        engine_status: "PAST_ORACLE_BASELINE_V2",
+        engine_status: "PAST_ORACLE_BASELINE_V3",
         output_format: "compact",
         subject_mode: core?.subject_context?.subject_mode || null,
         identity_depth: core?.subject_context?.identity_depth || null,
@@ -527,7 +537,7 @@ export default async function handler(req, res) {
     console.error("PAST ORACLE CRASH >>>", error);
 
     return res.status(500).json({
-      engine_status: "PAST_ORACLE_BASELINE_V2",
+      engine_status: "PAST_ORACLE_BASELINE_V3",
       system_status: "ERROR",
       error_message: error instanceof Error ? error.message : "Unknown error",
       error_stack: error instanceof Error ? error.stack : null
