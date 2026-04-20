@@ -1,11 +1,11 @@
 // api/past-oracle.js
-// FULL REPLACEMENT — UNIVERSAL_PAST_NANO_SCANNER_V6
+// FULL REPLACEMENT — UNIVERSAL_PAST_NANO_SCANNER_V7
 // HARD CONSISTENCY LOCK
 // NO PARTIAL ANYWHERE
 // DOMAIN-SPECIFIC YEAR BINDING
 // SETTLEMENT != FOREIGN ENTRY
 // ROUTE SHIFT != EDUCATION
-// EDUCATION YEAR STRICT FIX
+// EDUCATION YEAR HARD SCOPED OVERRIDE
 
 import { buildChartCore } from "../lib/chart-core.js";
 import { astroProvider } from "../lib/provider-adapter.js";
@@ -21,7 +21,7 @@ import { correctIdentityPacket } from "../lib/domain-corrector.js";
    CONSTANTS
 ===================================== */
 
-const ENGINE_STATUS = "UNIVERSAL_PAST_NANO_SCANNER_V6";
+const ENGINE_STATUS = "UNIVERSAL_PAST_NANO_SCANNER_V7";
 
 const FINAL_STATUS = {
   EXECUTED: "EXECUTED",
@@ -94,7 +94,7 @@ function yearNear(src, keywords) {
   for (const kw of keywords) {
     const idx = text.toLowerCase().indexOf(String(kw).toLowerCase());
     if (idx === -1) continue;
-    const tail = text.slice(idx, idx + 220);
+    const tail = text.slice(idx, idx + 240);
     const m = tail.match(/\b(19|20)\d{2}\b/);
     if (m) return Number(m[0]);
   }
@@ -689,6 +689,87 @@ function rebuildDomainResult(domain, facts) {
 }
 
 /* =====================================
+   HARD SCOPED OVERRIDE
+===================================== */
+
+function applyEducationHardOverride(domainResults, summary, facts, inputDob) {
+  const educationYear = deriveEducationYear(facts);
+  const educationAge = ageFromYear(educationYear, inputDob);
+
+  if (educationYear == null) {
+    return { domainResults, summary };
+  }
+
+  const nextDomainResults = safeArray(domainResults).map((domain) => {
+    if (up(domain?.domain_key) !== "EDUCATION") return domain;
+
+    const next = clone(domain);
+
+    next.final_state = FINAL_STATUS.EXECUTED;
+
+    if (next.primary_exact_event) {
+      next.primary_exact_event.date_marker = educationYear;
+      next.primary_exact_event.month_or_phase = "year-anchored phase";
+      next.primary_exact_event.status = FINAL_STATUS.EXECUTED;
+      next.primary_exact_event.trigger_phase = "event confirmed";
+      next.primary_exact_event.carryover_to_present = "YES";
+      next.primary_exact_event.evidence_type =
+        facts.study_start_year_claim != null || facts.student_visa_entry_year_claim != null
+          ? EVIDENCE.DIRECT_FACT
+          : next.primary_exact_event.evidence_type;
+      next.primary_exact_event.event_type =
+        facts.study_start_year_claim != null
+          ? "study / university phase"
+          : "student visa entry phase";
+      next.primary_exact_event.impact_summary = "event has definitively occurred";
+    }
+
+    next.alternative_exact_events = safeArray(next.alternative_exact_events).map((evt) => ({
+      ...evt,
+      date_marker: educationYear,
+      month_or_phase: "year-anchored phase"
+    }));
+
+    next.events = safeArray(next.events).map((evt) => ({
+      ...evt,
+      status: FINAL_STATUS.EXECUTED,
+      trigger_phase: "event confirmed",
+      carryover_to_present: "YES",
+      evidence_type:
+        facts.study_start_year_claim != null || facts.student_visa_entry_year_claim != null
+          ? EVIDENCE.DIRECT_FACT
+          : evt.evidence_type,
+      event_type:
+        facts.study_start_year_claim != null
+          ? "study / university phase"
+          : "student visa entry phase",
+      impact_summary: "event has definitively occurred"
+    }));
+
+    return next;
+  });
+
+  const nextSummary = clone(summary || {});
+  if (!nextSummary.work) nextSummary.work = {};
+
+  nextSummary.work.education_active = true;
+  nextSummary.work.education_year = educationYear;
+  nextSummary.work.education_age = educationAge;
+
+  if (
+    nextSummary.work.dominant_work_mode === "UNKNOWN" ||
+    nextSummary.work.dominant_work_mode === "EDUCATION"
+  ) {
+    nextSummary.work.dominant_work_mode = "EDUCATION";
+  }
+
+  return {
+    domainResults: nextDomainResults,
+    summary: nextSummary
+  };
+}
+
+/* =====================================
    SINGLE SOURCE OF TRUTH
 ===================================== */
 
@@ -1138,9 +1219,27 @@ export default async function handler(req, res) {
       birth_context: core.birth_context
     });
 
-    const rebuiltDomainResults = safeArray(evidenceLayer?.ranked_domains).map((d) =>
+    let rebuiltDomainResults = safeArray(evidenceLayer?.ranked_domains).map((d) =>
       rebuildDomainResult(d, facts)
     );
+
+    let provisionalDomainMap = buildDomainMap(rebuiltDomainResults);
+    let provisionalSectorState = buildSectorState(provisionalDomainMap);
+    let summary = buildSummary(provisionalDomainMap, provisionalSectorState, evidenceLayer, input, facts);
+
+    const overrideResult = applyEducationHardOverride(
+      rebuiltDomainResults,
+      summary,
+      facts,
+      input.dob
+    );
+
+    rebuiltDomainResults = overrideResult.domainResults;
+    summary = overrideResult.summary;
+
+    const domainMap = buildDomainMap(rebuiltDomainResults);
+    const validation_layer = rebuildValidationLayer(validationLayerRaw, domainMap);
+    const sectorState = validation_layer.sector_state;
 
     const exact_domain_summary = rebuiltDomainResults
       .filter((d) => d?.primary_exact_event)
@@ -1152,12 +1251,8 @@ export default async function handler(req, res) {
         alternative_exact_events: d.alternative_exact_events || []
       }));
 
-    const domainMap = buildDomainMap(rebuiltDomainResults);
-    const validation_layer = rebuildValidationLayer(validationLayerRaw, domainMap);
-    const sectorState = validation_layer.sector_state;
     const delivery_safe_packet = buildDeliverySafePacket(sectorState);
     const truth_summary = buildTopLevelTruthSummary(core, astro, evidenceLayer, facts);
-    const summary = buildSummary(domainMap, sectorState, evidenceLayer, input, facts);
     const verdict = buildVerdict(sectorState, truth_summary);
     const lokkotha_summary = buildLokkothaSummary(exact_domain_summary.length, truth_summary);
 
