@@ -1,5 +1,5 @@
 // api/past-oracle.js
-// PAST ORACLE — CLEAN CRASH-SAFE BASELINE
+// FULL REPLACEMENT — STABLE PAST ORACLE V2
 
 import { buildChartCore } from "../lib/chart-core.js";
 import { astroProvider } from "../lib/provider-adapter.js";
@@ -8,10 +8,19 @@ import { runAstroLayer, buildTimeline } from "../lib/layer-astro.js";
 import { runEvidenceLayer } from "../lib/layer-evidence.js";
 import { runEventFinalizer } from "../lib/event-finalizer.js";
 import { runValidationLayer } from "../lib/layer-validation.js";
-import { normalizeSectorStates, buildDomainTruthMap } from "../lib/state-normalizer.js";
-import { buildTruthLines, buildFinalTruthSummary } from "../lib/delivery-mapper.js";
+import {
+  normalizeSectorStates,
+  buildDomainTruthMap
+} from "../lib/state-normalizer.js";
+import {
+  buildTruthLines,
+  buildFinalTruthSummary
+} from "../lib/delivery-mapper.js";
 import { buildIdentityPacket } from "../lib/identity-packet.js";
-import { correctExactDomainSummary, correctIdentityPacket } from "../lib/domain-corrector.js";
+import {
+  correctExactDomainSummary,
+  correctIdentityPacket
+} from "../lib/domain-corrector.js";
 
 const str = (v) => (v == null ? "" : String(v).trim());
 
@@ -32,12 +41,12 @@ function extractAllYears(text) {
   return [...String(text || "").matchAll(/\b(19|20)\d{2}\b/g)].map((m) => Number(m[0]));
 }
 
-function extractYearNearKeyword(text, keywords) {
-  const src = String(text || "");
+function yearNear(src, keywords) {
+  const text = String(src || "");
   for (const kw of keywords) {
-    const idx = src.toLowerCase().indexOf(String(kw).toLowerCase());
+    const idx = text.toLowerCase().indexOf(String(kw).toLowerCase());
     if (idx === -1) continue;
-    const tail = src.slice(idx, idx + 120);
+    const tail = text.slice(idx, idx + 140);
     const m = tail.match(/\b(19|20)\d{2}\b/);
     if (m) return Number(m[0]);
   }
@@ -49,46 +58,93 @@ function hasAny(text, arr) {
   return arr.some((x) => src.includes(String(x).toLowerCase()));
 }
 
+function parseFlexibleCountToken(token) {
+  const map = {
+    one: 1, two: 2, three: 3, four: 4, five: 5,
+    ek: 1, ekta: 1, dui: 2, duita: 2, tin: 3, tinta: 3,
+    char: 4, charta: 4, pach: 5, pachta: 5
+  };
+  if (!token) return null;
+  if (/^\d+$/.test(token)) return Number(token);
+  return map[String(token).toLowerCase()] ?? null;
+}
+
+function extractMarriageCount(text) {
+  const patterns = [
+    /\b(\d+|one|two|three|four|five|ek|ekta|dui|duita|tin|tinta|char|charta|pach|pachta)\s+marriages?\b/i,
+    /\b(\d+|one|two|three|four|five|ek|ekta|dui|duita|tin|tinta|char|charta|pach|pachta)\s+bea\b/i,
+    /\b(\d+|one|two|three|four|five|ek|ekta|dui|duita|tin|tinta|char|charta|pach|pachta)\s+biye\b/i
+  ];
+  for (const rx of patterns) {
+    const m = String(text || "").match(rx);
+    if (m) return parseFlexibleCountToken(m[1]);
+  }
+  return null;
+}
+
+function extractBrokenMarriageCount(text) {
+  const patterns = [
+    /\b(\d+|one|two|three|four|five|ek|ekta|dui|duita|tin|tinta|char|charta|pach|pachta)\s+divorce\b/i,
+    /\b(\d+|one|two|three|four|five|ek|ekta|dui|duita|tin|tinta|char|charta|pach|pachta)\s+broken\b/i,
+    /\b(\d+|one|two|three|four|five|ek|ekta|dui|duita|tin|tinta|char|charta|pach|pachta)\s+separation\b/i,
+    /\b(\d+|one|two|three|four|five|ek|ekta|dui|duita|tin|tinta|char|charta|pach|pachta)\s+talak\b/i
+  ];
+  for (const rx of patterns) {
+    const m = String(text || "").match(rx);
+    if (m) return parseFlexibleCountToken(m[1]);
+  }
+  return null;
+}
+
 function parseFactAnchors(facts, question) {
   const rawText = `${facts || ""} ${question || ""}`.trim();
   const text = rawText.toLowerCase();
   const allYears = extractAllYears(text);
 
-  let foreignEntryYear = extractYearNearKeyword(text, [
-    "uk", "foreign", "abroad", "came", "arrived", "entry", "moved", "visa", "immigration", "bidesh"
+  const marriage_count_claim = extractMarriageCount(text);
+  const broken_marriage_claim = extractBrokenMarriageCount(text);
+
+  let foreign_entry_year_claim = yearNear(text, [
+    "uk", "foreign", "abroad", "came", "arrived", "entry", "moved",
+    "visa", "immigration", "bidesh"
   ]);
 
-  const settlementYear = extractYearNearKeyword(text, [
-    "settlement granted", "ilr granted", "settled", "permanent approved"
+  const settlement_year_claim = yearNear(text, [
+    "ilr granted", "settlement granted", "settled", "permanent approved"
   ]);
 
-  const settlementAppliedYear = extractYearNearKeyword(text, [
-    "ilr apply", "ilr applied", "settlement apply", "settlement applied", "appeal"
+  const settlement_applied_year_claim = yearNear(text, [
+    "ilr apply", "ilr applied", "settlement apply", "settlement applied",
+    "applied ilr", "applied settlement"
   ]);
 
-  const settlementRefusalYear = extractYearNearKeyword(text, [
-    "refused", "refusal", "rejected"
+  const settlement_refusal_year_claim = yearNear(text, [
+    "refusal", "refused", "rejected"
   ]);
 
-  const parent_overlay_claim = hasAny(text, ["father", "mother", "baba", "ma", "parent"]);
+  const appeal_year_claim = yearNear(text, [
+    "appeal", "appealed", "appeal ongoing", "appeal filed"
+  ]);
 
   if (
-    foreignEntryYear == null &&
+    foreign_entry_year_claim == null &&
     hasAny(text, ["uk", "foreign", "abroad", "came", "arrived", "entry", "moved", "visa", "immigration", "bidesh"]) &&
     allYears.length
   ) {
-    foreignEntryYear = allYears[0];
+    foreign_entry_year_claim = allYears[0];
   }
 
   return {
-    provided: !!(facts || question),
+    provided: !!rawText,
     raw_text: text,
-    foreign_entry_year_claim: foreignEntryYear,
-    settlement_year_claim: settlementYear,
-    settlement_applied_year_claim: settlementAppliedYear,
-    settlement_refusal_year_claim: settlementRefusalYear,
-    parent_overlay_claim,
-    all_years: allYears
+    marriage_count_claim,
+    broken_marriage_claim,
+    foreign_entry_year_claim,
+    settlement_year_claim,
+    settlement_applied_year_claim,
+    settlement_refusal_year_claim,
+    appeal_year_claim,
+    all_years
   };
 }
 
@@ -135,20 +191,37 @@ function buildDeliverySafePacket(validationLayer = {}, facts = {}) {
   const normalized_states = normalizeSectorStates(sectorState);
   const domain_truth_map = buildDomainTruthMap(sectorState);
 
-  if ((facts?.settlement_applied_year_claim || facts?.settlement_refusal_year_claim) && !facts?.settlement_year_claim) {
+  if ((facts?.settlement_applied_year_claim || facts?.settlement_refusal_year_claim || facts?.appeal_year_claim) && !facts?.settlement_year_claim) {
     normalized_states.settlement = "ongoing";
     if (domain_truth_map.foreign) {
       domain_truth_map.foreign.settlement = "ongoing";
     }
   }
 
+  // real-life overlays
+  if (facts?.settlement_refusal_year_claim) {
+    normalized_states.legal = "occurred";
+  }
+
+  if (facts?.appeal_year_claim) {
+    normalized_states.legal = "ongoing";
+  }
+
   const truth_lines = buildTruthLines(domain_truth_map);
-  const final_truth_summary = buildFinalTruthSummary(domain_truth_map);
+
+  if (facts?.settlement_refusal_year_claim) {
+    truth_lines.push("settlement refusal বাস্তবে ঘটেছে");
+  }
+  if (facts?.appeal_year_claim) {
+    truth_lines.push("appeal এখনো চলমান");
+  }
+
+  const final_truth_summary = truth_lines.length ? [...new Set(truth_lines)].join("। ") + "।" : "";
 
   return {
     normalized_states,
     domain_truth_map,
-    truth_lines,
+    truth_lines: [...new Set(truth_lines)],
     final_truth_summary
   };
 }
@@ -179,7 +252,7 @@ export default async function handler(req, res) {
 
     if (core.system_status !== "OK") {
       return res.status(400).json({
-        engine_status: "PAST_ORACLE_BASELINE_V1",
+        engine_status: "PAST_ORACLE_BASELINE_V2",
         system_status: "INPUT_ERROR",
         details: core
       });
@@ -221,11 +294,7 @@ export default async function handler(req, res) {
       evidencePacket: core.evidence_packet
     });
 
-    const identityPacket = correctIdentityPacket(
-      rawIdentityPacket,
-      input,
-      facts
-    );
+    const identityPacket = correctIdentityPacket(rawIdentityPacket, input, facts);
 
     const master_timeline = buildTimeline({
       ranked_domains: finalizedDomains,
@@ -246,7 +315,7 @@ export default async function handler(req, res) {
     });
 
     const correctedExactDomainSummary = correctExactDomainSummary(
-      evidenceLayer?.exact_domain_summary || [],
+      evidenceLayer.exact_domain_summary,
       facts,
       deliverySafePacket
     );
@@ -254,120 +323,120 @@ export default async function handler(req, res) {
     const topLevelTruthSummary = buildTopLevelTruthSummary(core, astro, evidenceLayer);
 
     const payload = {
-      engine_status: "PAST_ORACLE_BASELINE_V1",
+      engine_status: "PAST_ORACLE_BASELINE_V2",
       system_status: "OK",
 
-      mode: core?.subject_context?.question_mode || "GENERAL",
-      subject_mode: core?.subject_context?.subject_mode || null,
-      identity_depth: core?.subject_context?.identity_depth || null,
-      precision_mode: core?.birth_context?.precision_mode || null,
+      mode: core.subject_context?.question_mode || "GENERAL",
+      subject_mode: core.subject_context?.subject_mode || null,
+      identity_depth: core.subject_context?.identity_depth || null,
+      precision_mode: core.birth_context?.precision_mode || null,
 
-      input_normalized: core?.input_normalized || {},
-      subject_context: core?.subject_context || {},
-      birth_context: core?.birth_context || {},
-      current_context: core?.current_context || {},
+      input_normalized: core.input_normalized,
+      subject_context: core.subject_context,
+      birth_context: core.birth_context,
+      current_context: core.current_context,
 
       fact_anchor_block: facts,
-      question_profile: stage2?.question_profile || {},
-      linked_domain_expansion: stage2?.linked_domain_expansion || [],
+      question_profile: stage2.question_profile,
+      linked_domain_expansion: stage2.linked_domain_expansion,
 
-      evidence_normalized: astro?.evidence_normalized || {},
-      mode_flags: astro?.mode_flags || {},
-      name_hints: astro?.name_hints || {},
-      validation_layer: validationLayer || {},
+      evidence_normalized: astro.evidence_normalized,
+      mode_flags: astro.mode_flags || {},
+      name_hints: astro.name_hints || {},
+      validation_layer: validationLayer,
 
       identity_packet: identityPacket,
       delivery_safe_packet: deliverySafePacket,
 
-      top_ranked_domains: (evidenceLayer?.ranked_domains || [])
+      top_ranked_domains: evidenceLayer.ranked_domains
         .slice(0, 12)
         .map(minifyDomain),
 
-      domain_results: evidenceLayer?.ranked_domains || [],
+      domain_results: evidenceLayer.ranked_domains,
       exact_domain_summary: correctedExactDomainSummary,
 
-      event_summary: evidenceLayer?.event_summary || {},
+      event_summary: evidenceLayer.event_summary,
       truth_summary: topLevelTruthSummary,
-      master_timeline: evidenceLayer?.master_timeline || [],
-      current_carryover: stage2?.carryover || {},
-      validation_block: evidenceLayer?.validation_block || {},
-      forensic_verdict: evidenceLayer?.forensic_verdict || {},
-      lokkotha_summary: evidenceLayer?.lokkotha_summary || {},
-      project_paste_block: evidenceLayer?.project_paste_block || ""
+      master_timeline: evidenceLayer.master_timeline,
+      current_carryover: stage2.carryover,
+      validation_block: evidenceLayer.validation_block,
+      forensic_verdict: evidenceLayer.forensic_verdict,
+      lokkotha_summary: evidenceLayer.lokkotha_summary,
+      project_paste_block: evidenceLayer.project_paste_block
     };
 
     if (input.format === "project") {
       return res.status(200).json({
-        engine_status: "PAST_ORACLE_BASELINE_V1",
+        engine_status: "PAST_ORACLE_BASELINE_V2",
         output_format: "project",
-        subject_mode: core?.subject_context?.subject_mode || null,
-        identity_depth: core?.subject_context?.identity_depth || null,
-        precision_mode: core?.birth_context?.precision_mode || null,
+        subject_mode: core.subject_context?.subject_mode || null,
+        identity_depth: core.subject_context?.identity_depth || null,
+        precision_mode: core.birth_context?.precision_mode || null,
         truth_summary: topLevelTruthSummary,
-        validation_layer: validationLayer || {},
+        validation_layer: validationLayer,
         identity_packet: identityPacket,
         delivery_safe_packet: deliverySafePacket,
-        project_paste_block: evidenceLayer?.project_paste_block || ""
+        project_paste_block: evidenceLayer.project_paste_block
       });
     }
 
     if (input.format === "compact") {
       return res.status(200).json({
-        engine_status: "PAST_ORACLE_BASELINE_V1",
+        engine_status: "PAST_ORACLE_BASELINE_V2",
         output_format: "compact",
-        subject_mode: core?.subject_context?.subject_mode || null,
-        identity_depth: core?.subject_context?.identity_depth || null,
-        precision_mode: core?.birth_context?.precision_mode || null,
+        subject_mode: core.subject_context?.subject_mode || null,
+        identity_depth: core.subject_context?.identity_depth || null,
+        precision_mode: core.birth_context?.precision_mode || null,
         truth_summary: topLevelTruthSummary,
-        validation_layer: validationLayer || {},
+        validation_layer: validationLayer,
         identity_packet: identityPacket,
         delivery_safe_packet: deliverySafePacket,
         summary: {
-          primary_domain: stage2?.question_profile?.primary_domain || "GENERAL",
-          total_events: evidenceLayer?.event_summary?.total_estimated_events || 0,
-          top_domains: (evidenceLayer?.ranked_domains || []).slice(0, 5).map((d) => d.domain_label),
+          primary_domain: stage2.question_profile.primary_domain,
+          total_events: evidenceLayer.event_summary.total_estimated_events,
+          top_domains: evidenceLayer.ranked_domains.slice(0, 5).map((d) => d.domain_label),
 
           relationship: {
-            marriage_count: evidenceLayer?.event_summary?.relationship?.marriage_count ?? 0,
-            broken_marriage_count: evidenceLayer?.event_summary?.relationship?.broken_marriage_count ?? 0,
-            current_marriage_status: evidenceLayer?.event_summary?.relationship?.current_marriage_status ?? "UNKNOWN",
-            latest_relationship_event_type: evidenceLayer?.event_summary?.relationship?.latest_relationship_event_type ?? null
+            marriage_count: evidenceLayer.event_summary.relationship?.marriage_count ?? 0,
+            broken_marriage_count: evidenceLayer.event_summary.relationship?.broken_marriage_count ?? 0,
+            current_marriage_status: evidenceLayer.event_summary.relationship?.current_marriage_status ?? "UNKNOWN",
+            latest_relationship_event_type: evidenceLayer.event_summary.relationship?.latest_relationship_event_type ?? null
           },
 
           work: {
-            dominant_work_mode: evidenceLayer?.event_summary?.work?.dominant_work_mode ?? "UNKNOWN",
-            education_active: evidenceLayer?.event_summary?.work?.education_active ?? false,
-            job_active: evidenceLayer?.event_summary?.work?.job_active ?? false,
-            business_active: evidenceLayer?.event_summary?.work?.business_active ?? false
+            dominant_work_mode: evidenceLayer.event_summary.work?.dominant_work_mode ?? "UNKNOWN",
+            education_active: evidenceLayer.event_summary.work?.education_active ?? false,
+            job_active: evidenceLayer.event_summary.work?.job_active ?? false,
+            business_active: evidenceLayer.event_summary.work?.business_active ?? false
           },
 
           foreign: {
-            foreign_shift_count: evidenceLayer?.event_summary?.foreign?.foreign_shift_count ?? 0,
-            foreign_entry_year: evidenceLayer?.event_summary?.foreign?.foreign_entry_year ?? null,
-            settlement_year: evidenceLayer?.event_summary?.foreign?.settlement_year ?? null,
-            foreign_process_status: evidenceLayer?.event_summary?.foreign?.foreign_process_status ?? null
+            foreign_shift_count: evidenceLayer.event_summary.foreign?.foreign_shift_count ?? 0,
+            foreign_entry_year: evidenceLayer.event_summary.foreign?.foreign_entry_year ?? null,
+            settlement_year: evidenceLayer.event_summary.foreign?.settlement_year ?? null,
+            foreign_process_status: evidenceLayer.event_summary.foreign?.foreign_process_status ?? null
           },
 
-          health: evidenceLayer?.event_summary?.health?.health_status ?? "UNKNOWN",
-          money: evidenceLayer?.event_summary?.money?.money_status ?? "UNKNOWN",
-          conflict: evidenceLayer?.event_summary?.conflict?.conflict_status ?? "UNKNOWN",
+          health: evidenceLayer.event_summary.health?.health_status ?? "UNKNOWN",
+          money: evidenceLayer.event_summary.money?.money_status ?? "UNKNOWN",
+          conflict: evidenceLayer.event_summary.conflict?.conflict_status ?? "UNKNOWN",
 
-          timing_summary: evidenceLayer?.event_summary?.timing_summary || {},
-          truth_summary: evidenceLayer?.event_summary?.truth_summary || {},
-          recognition_lines: evidenceLayer?.event_summary?.recognition_lines || [],
+          timing_summary: evidenceLayer.event_summary.timing_summary || {},
+          truth_summary: evidenceLayer.event_summary.truth_summary || {},
+          recognition_lines: evidenceLayer.event_summary.recognition_lines || [],
 
-          current_carryover: stage2?.carryover?.present_carryover_detected || false
+          current_carryover: stage2.carryover.present_carryover_detected
         },
         exact_domain_summary: correctedExactDomainSummary,
-        verdict: evidenceLayer?.forensic_verdict || {},
-        lokkotha_summary: evidenceLayer?.lokkotha_summary || {}
+        verdict: evidenceLayer.forensic_verdict,
+        lokkotha_summary: evidenceLayer.lokkotha_summary
       });
     }
 
     return res.status(200).json(payload);
   } catch (error) {
     return res.status(500).json({
-      engine_status: "PAST_ORACLE_BASELINE_V1",
+      engine_status: "PAST_ORACLE_BASELINE_V2",
       system_status: "ERROR",
       error_message: error instanceof Error ? error.message : "Unknown error"
     });
