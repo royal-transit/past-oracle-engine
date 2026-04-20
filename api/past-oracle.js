@@ -1,5 +1,6 @@
 // api/past-oracle.js
-// FULL REPLACEMENT — UNIVERSAL PAST NANO SCANNER V1
+// FULL REPLACEMENT — UNIVERSAL PAST NANO SCANNER V2
+// SINGLE SOURCE OF TRUTH SYNC + YEAR/AGE SUPPORT
 
 import { buildChartCore } from "../lib/chart-core.js";
 import { astroProvider } from "../lib/provider-adapter.js";
@@ -55,6 +56,14 @@ function hasAny(text, arr) {
 
 function unique(arr) {
   return [...new Set((arr || []).filter(Boolean))];
+}
+
+function safeArray(v) {
+  return Array.isArray(v) ? v : [];
+}
+
+function clone(obj) {
+  return JSON.parse(JSON.stringify(obj || {}));
 }
 
 function extractAllYears(text) {
@@ -126,14 +135,6 @@ function extractBrokenMarriageCount(text) {
   return null;
 }
 
-function clone(obj) {
-  return JSON.parse(JSON.stringify(obj || {}));
-}
-
-function safeArray(v) {
-  return Array.isArray(v) ? v : [];
-}
-
 function normalizeStateValue(v) {
   const s = low(v);
   if (["executed", "occurred", "confirmed"].includes(s)) return "occurred";
@@ -142,6 +143,40 @@ function normalizeStateValue(v) {
   if (["broken"].includes(s)) return "broken";
   if (["not_executed", "not_occurred"].includes(s)) return "not_occurred";
   return "unknown";
+}
+
+function stateRank(v) {
+  const s = up(v);
+  if (s === "EXECUTED") return 5;
+  if (s === "PARTIAL") return 4;
+  if (s === "BLOCKED") return 3;
+  if (s === "BROKEN") return 2;
+  if (s === "NOT_EXECUTED") return 1;
+  return 0;
+}
+
+function pickStrongerState(a, b) {
+  return stateRank(a) >= stateRank(b) ? a : b;
+}
+
+function birthYearFromDob(dob) {
+  const raw = str(dob);
+  const m = raw.match(/\b(\d{4})\b/);
+  if (m) return Number(m[1]);
+
+  const parts = raw.split(/[-/]/).map((x) => x.trim());
+  if (parts.length === 3) {
+    const maybeYear = Number(parts[2]);
+    if (Number.isFinite(maybeYear) && maybeYear > 1900) return maybeYear;
+  }
+  return null;
+}
+
+function ageFromYear(eventYear, dob) {
+  const by = birthYearFromDob(dob);
+  if (!by || !eventYear) return null;
+  const age = Number(eventYear) - Number(by);
+  return Number.isFinite(age) ? age : null;
 }
 
 /* =====================================
@@ -163,86 +198,45 @@ function parseFactAnchors(facts, question) {
   const broken_marriage_claim = extractBrokenMarriageCount(text);
 
   let foreign_entry_year_claim = yearNear(text, [
-    "uk",
-    "foreign",
-    "abroad",
-    "came",
-    "arrived",
-    "entry",
-    "moved",
-    "visa",
-    "immigration",
-    "saudi",
-    "dubai",
-    "spain",
-    "bidesh"
+    "uk", "foreign", "abroad", "came", "arrived", "entry", "moved",
+    "visa", "immigration", "saudi", "dubai", "spain", "bidesh"
   ]);
 
   const settlement_year_claim = yearNear(text, [
-    "ilr granted",
-    "settlement granted",
-    "settled",
-    "permanent approved",
-    "citizenship granted"
+    "ilr granted", "settlement granted", "settled", "permanent approved", "citizenship granted"
   ]);
 
   const settlement_applied_year_claim = yearNear(text, [
-    "ilr apply",
-    "ilr applied",
-    "settlement apply",
-    "settlement applied",
-    "applied ilr",
-    "applied settlement"
+    "ilr apply", "ilr applied", "settlement apply", "settlement applied",
+    "applied ilr", "applied settlement"
   ]);
 
   const settlement_refusal_year_claim = yearNear(text, [
-    "refusal",
-    "refused",
-    "rejected",
-    "denied"
+    "refusal", "refused", "rejected", "denied"
   ]);
 
   let appeal_year_claim = yearNear(text, [
-    "appeal",
-    "appealed",
-    "appeal ongoing",
-    "appeal filed"
+    "appeal", "appealed", "appeal ongoing", "appeal filed"
   ]);
 
   const job_start_year_claim = yearNear(text, [
-    "job started",
-    "started job",
-    "employment started",
-    "work started"
+    "job started", "started job", "employment started", "work started"
   ]);
 
   const business_start_year_claim = yearNear(text, [
-    "business started",
-    "started business",
-    "company started",
-    "shop started"
+    "business started", "started business", "company started", "shop started"
   ]);
 
   const study_start_year_claim = yearNear(text, [
-    "school",
-    "college",
-    "university",
-    "study started",
-    "student"
+    "school", "college", "university", "study started", "student"
   ]);
 
   const property_year_claim = yearNear(text, [
-    "property",
-    "house",
-    "flat",
-    "land",
-    "home bought"
+    "property", "house", "flat", "land", "home bought"
   ]);
 
   const debt_year_claim = yearNear(text, [
-    "debt",
-    "loan",
-    "liability"
+    "debt", "loan", "liability"
   ]);
 
   if (
@@ -260,19 +254,8 @@ function parseFactAnchors(facts, question) {
     Array.isArray(allYears) &&
     allYears.length > 0 &&
     hasAny(text, [
-      "uk",
-      "foreign",
-      "abroad",
-      "came",
-      "arrived",
-      "entry",
-      "moved",
-      "visa",
-      "immigration",
-      "saudi",
-      "dubai",
-      "spain",
-      "bidesh"
+      "uk", "foreign", "abroad", "came", "arrived", "entry", "moved",
+      "visa", "immigration", "saudi", "dubai", "spain", "bidesh"
     ])
   ) {
     foreign_entry_year_claim = allYears[0];
@@ -305,15 +288,14 @@ function applyUniversalStateOverrides(validationLayer = {}, facts = {}) {
   const out = clone(validationLayer);
   out.sector_state = out.sector_state || {};
   out.question_intent = out.question_intent || {};
+  out.sector_validation = safeArray(out.sector_validation);
 
-  // Foreign truth
   if (facts.foreign_entry_year_claim) {
     out.sector_state.foreign = "EXECUTED";
     out.sector_state.immigration = "EXECUTED";
     out.sector_state.visa = out.sector_state.visa || "PARTIAL";
   }
 
-  // Settlement truth
   if (facts.settlement_year_claim) {
     out.sector_state.settlement = "EXECUTED";
   } else if (
@@ -324,7 +306,6 @@ function applyUniversalStateOverrides(validationLayer = {}, facts = {}) {
     out.sector_state.settlement = "PARTIAL";
   }
 
-  // Legal truth
   if (facts.settlement_refusal_year_claim) {
     out.sector_state.legal = "EXECUTED";
     out.sector_state.document = "EXECUTED";
@@ -335,7 +316,6 @@ function applyUniversalStateOverrides(validationLayer = {}, facts = {}) {
     out.sector_state.document = "PARTIAL";
   }
 
-  // Relationship truth
   if (facts.marriage_count_claim && facts.marriage_count_claim > 0) {
     out.sector_state.marriage = "EXECUTED";
   }
@@ -343,7 +323,6 @@ function applyUniversalStateOverrides(validationLayer = {}, facts = {}) {
     out.sector_state.divorce = "EXECUTED";
   }
 
-  // Work / business / education / property / debt facts if present
   if (facts.job_start_year_claim) out.sector_state.job = "EXECUTED";
   if (facts.business_start_year_claim) out.sector_state.business = "EXECUTED";
   if (facts.study_start_year_claim) out.sector_state.education = "EXECUTED";
@@ -513,7 +492,90 @@ function normalizeLikelyHistoryDomains(exactDomainSummary = []) {
   });
 }
 
-function rebuildDeliverySafePacket(validationLayer = {}, facts = {}) {
+/* =====================================
+   SINGLE SOURCE OF TRUTH REBUILD
+===================================== */
+
+function buildFinalDomainStateMap(correctedExactDomainSummary = []) {
+  const finalMap = {};
+
+  for (const item of safeArray(correctedExactDomainSummary)) {
+    const dk = low(item?.domain_key);
+    const evt = item?.primary_exact_event || {};
+    const status = up(evt?.status || "UNKNOWN");
+    const year = evt?.date_marker ?? null;
+    const eventType = evt?.event_type || null;
+
+    if (!dk) continue;
+
+    if (!finalMap[dk]) {
+      finalMap[dk] = {
+        status,
+        year,
+        event_type: eventType
+      };
+    } else {
+      const stronger = pickStrongerState(finalMap[dk].status, status);
+      finalMap[dk].status = stronger;
+      if (!finalMap[dk].year && year) finalMap[dk].year = year;
+      if (!finalMap[dk].event_type && eventType) finalMap[dk].event_type = eventType;
+    }
+  }
+
+  return finalMap;
+}
+
+function rebuildValidationLayerFromFinalState(validationLayerBase = {}, finalStateMap = {}) {
+  const out = clone(validationLayerBase);
+  out.sector_state = out.sector_state || {};
+  out.sector_validation = safeArray(out.sector_validation).map((row) => ({ ...row }));
+
+  const domainToSector = {
+    marriage: "marriage",
+    divorce: "divorce",
+    foreign: "foreign",
+    settlement: "settlement",
+    immigration: "immigration",
+    visa: "visa",
+    education: "education",
+    job: "job",
+    career: "career",
+    business: "business",
+    money: "money",
+    property: "property",
+    health: "health",
+    mental: "mental",
+    legal: "legal",
+    family: "family",
+    children: "children",
+    blockage: "blockage",
+    enemy: "enemy",
+    document: "document",
+    debt: "debt",
+    partnership: "partnership"
+  };
+
+  for (const [dk, sector] of Object.entries(domainToSector)) {
+    if (finalStateMap[dk]?.status) {
+      out.sector_state[sector] = finalStateMap[dk].status;
+    }
+  }
+
+  out.sector_validation = out.sector_validation.map((row) => {
+    const sectorKey = low(row?.sector);
+    if (out.sector_state[sectorKey]) {
+      return {
+        ...row,
+        backend_state: out.sector_state[sectorKey]
+      };
+    }
+    return row;
+  });
+
+  return out;
+}
+
+function rebuildDeliverySafePacketFromFinalState(validationLayer = {}, facts = {}) {
   const sectorState = validationLayer?.sector_state || {};
   const normalized_states = normalizeSectorStates(sectorState);
   const domain_truth_map = buildDomainTruthMap(sectorState);
@@ -523,18 +585,10 @@ function rebuildDeliverySafePacket(validationLayer = {}, facts = {}) {
     if (domain_truth_map.foreign) domain_truth_map.foreign.settlement = "ongoing";
   }
 
-  if (facts.settlement_refusal_year_claim) {
-    normalized_states.legal = facts.appeal_year_claim ? "ongoing" : "occurred";
-    if (domain_truth_map.conflict) {
-      domain_truth_map.conflict.legal = facts.appeal_year_claim ? "ongoing" : "occurred";
-    }
-  }
-
   if (facts.foreign_entry_year_claim) {
     normalized_states.foreign = "occurred";
     normalized_states.immigration = "occurred";
     normalized_states.visa = "occurred";
-
     if (domain_truth_map.foreign) {
       domain_truth_map.foreign.movement = "occurred";
       domain_truth_map.foreign.immigration = "occurred";
@@ -542,18 +596,13 @@ function rebuildDeliverySafePacket(validationLayer = {}, facts = {}) {
     }
   }
 
-  if (facts.marriage_count_claim > 0) {
-    normalized_states.marriage = "occurred";
-    if (domain_truth_map.relationship) {
-      domain_truth_map.relationship.marriage = "occurred";
+  if (facts.settlement_refusal_year_claim) {
+    normalized_states.legal = facts.appeal_year_claim ? "ongoing" : "occurred";
+    normalized_states.document = facts.appeal_year_claim ? "ongoing" : "occurred";
+    if (domain_truth_map.conflict) {
+      domain_truth_map.conflict.legal = facts.appeal_year_claim ? "ongoing" : "occurred";
     }
   }
-
-  if (facts.job_start_year_claim) normalized_states.job = "occurred";
-  if (facts.business_start_year_claim) normalized_states.business = "occurred";
-  if (facts.study_start_year_claim) normalized_states.education = "occurred";
-  if (facts.property_year_claim) normalized_states.property = "occurred";
-  if (facts.debt_year_claim) normalized_states.debt = "occurred";
 
   const truth_lines = buildTruthLines(domain_truth_map);
 
@@ -570,9 +619,140 @@ function rebuildDeliverySafePacket(validationLayer = {}, facts = {}) {
   };
 }
 
-/* =====================================
-   SUMMARY HELPERS
-===================================== */
+function buildYearAgePacket(correctedExactDomainSummary = [], dob = "") {
+  const out = {};
+
+  for (const item of safeArray(correctedExactDomainSummary)) {
+    const dk = low(item?.domain_key);
+    const evt = item?.primary_exact_event || {};
+    const year = evt?.date_marker ?? null;
+    if (!dk || !year) continue;
+
+    out[dk] = {
+      year,
+      age: ageFromYear(year, dob)
+    };
+  }
+
+  return out;
+}
+
+function buildSummaryFromFinalState({
+  correctedExactDomainSummary = [],
+  facts = {},
+  dob = "",
+  stage2 = {},
+  evidenceLayer = {}
+}) {
+  const finalMap = buildFinalDomainStateMap(correctedExactDomainSummary);
+  const yearAge = buildYearAgePacket(correctedExactDomainSummary, dob);
+
+  const topDomains = safeArray(correctedExactDomainSummary)
+    .slice(0, 5)
+    .map((d) => d?.domain_label);
+
+  const relationshipStatus =
+    finalMap.marriage?.status ||
+    (facts.marriage_count_claim > 0 ? "EXECUTED" : "UNKNOWN");
+
+  const healthStatus =
+    finalMap.health?.status ||
+    finalMap.mental?.status ||
+    "UNKNOWN";
+
+  const moneyStatus =
+    finalMap.money?.status ||
+    finalMap.debt?.status ||
+    "UNKNOWN";
+
+  const conflictStatus =
+    finalMap.legal?.status ||
+    finalMap.document?.status ||
+    "UNKNOWN";
+
+  return {
+    primary_domain: stage2?.question_profile?.primary_domain || "GENERAL",
+    total_events: safeArray(correctedExactDomainSummary).length,
+    top_domains: topDomains,
+
+    relationship: {
+      marriage_count: facts?.marriage_count_claim ?? evidenceLayer?.event_summary?.relationship?.marriage_count ?? 0,
+      broken_marriage_count: facts?.broken_marriage_claim ?? evidenceLayer?.event_summary?.relationship?.broken_marriage_count ?? 0,
+      current_marriage_status: relationshipStatus,
+      latest_relationship_event_type:
+        finalMap.marriage?.event_type ||
+        evidenceLayer?.event_summary?.relationship?.latest_relationship_event_type ||
+        null,
+      marriage_year: yearAge.marriage?.year ?? null,
+      marriage_age: yearAge.marriage?.age ?? null
+    },
+
+    work: {
+      dominant_work_mode:
+        finalMap.business?.status === "EXECUTED"
+          ? "BUSINESS"
+          : finalMap.job?.status === "EXECUTED"
+          ? "JOB"
+          : finalMap.education?.status === "EXECUTED"
+          ? "EDUCATION"
+          : "UNKNOWN",
+      education_active: !!finalMap.education,
+      job_active: !!finalMap.job,
+      business_active: !!finalMap.business,
+      education_year: yearAge.education?.year ?? null,
+      education_age: yearAge.education?.age ?? null,
+      job_year: yearAge.job?.year ?? null,
+      job_age: yearAge.job?.age ?? null,
+      business_year: yearAge.business?.year ?? null,
+      business_age: yearAge.business?.age ?? null
+    },
+
+    foreign: {
+      foreign_shift_count: evidenceLayer?.event_summary?.foreign?.foreign_shift_count ?? 0,
+      foreign_entry_year: yearAge.foreign?.year ?? facts?.foreign_entry_year_claim ?? null,
+      foreign_entry_age: yearAge.foreign?.age ?? ageFromYear(facts?.foreign_entry_year_claim, dob),
+      settlement_year: yearAge.settlement?.year ?? facts?.settlement_year_claim ?? null,
+      settlement_age: yearAge.settlement?.age ?? ageFromYear(facts?.settlement_year_claim, dob),
+      refusal_year: facts?.settlement_refusal_year_claim ?? null,
+      refusal_age: ageFromYear(facts?.settlement_refusal_year_claim, dob),
+      appeal_year: facts?.appeal_year_claim ?? null,
+      appeal_age: ageFromYear(facts?.appeal_year_claim, dob),
+      foreign_process_status: finalMap.foreign?.status || "UNKNOWN",
+      settlement_status: finalMap.settlement?.status || "UNKNOWN"
+    },
+
+    health: healthStatus,
+    money: moneyStatus,
+    conflict: conflictStatus,
+
+    timing_summary: evidenceLayer?.event_summary?.timing_summary || {},
+    truth_summary: evidenceLayer?.event_summary?.truth_summary || {},
+    recognition_lines: unique([
+      ...(safeArray(evidenceLayer?.event_summary?.recognition_lines))
+    ]),
+
+    current_carryover: stage2?.carryover?.present_carryover_detected || false
+  };
+}
+
+function buildForensicVerdictFromFinalState(finalStateMap = {}, truthLevel = "UNKNOWN") {
+  const rel = finalStateMap.marriage?.status || "UNKNOWN";
+  const foreign = finalStateMap.foreign?.status || "UNKNOWN";
+  const health =
+    finalStateMap.health?.status ||
+    finalStateMap.mental?.status ||
+    "UNKNOWN";
+  const money =
+    finalStateMap.money?.status ||
+    finalStateMap.debt?.status ||
+    "UNKNOWN";
+
+  return {
+    forensic_direction:
+      `Universal scan final state: Relationship ${rel}. Foreign ${foreign}. Health ${health}. Money ${money}. Truth level ${truthLevel}.`,
+    validation_state: "STABLE"
+  };
+}
 
 function minifyDomain(d) {
   return {
@@ -642,7 +822,7 @@ export default async function handler(req, res) {
 
     if (core?.system_status !== "OK") {
       return res.status(400).json({
-        engine_status: "UNIVERSAL_PAST_NANO_SCANNER_V1",
+        engine_status: "UNIVERSAL_PAST_NANO_SCANNER_V2",
         system_status: "INPUT_ERROR",
         details: core
       });
@@ -675,7 +855,7 @@ export default async function handler(req, res) {
       finalizedDomains
     });
 
-    const validationLayer = applyUniversalStateOverrides(validationLayerRaw, facts);
+    const validationLayerAnchored = applyUniversalStateOverrides(validationLayerRaw, facts);
 
     const rawIdentityPacket = buildIdentityPacket({
       input,
@@ -703,7 +883,7 @@ export default async function handler(req, res) {
       ranked_domains: finalizedDomains,
       master_timeline,
       carryover: stage2.carryover,
-      validation_layer: validationLayer,
+      validation_layer: validationLayerAnchored,
       subject_context: core.subject_context,
       birth_context: core.birth_context
     });
@@ -717,12 +897,26 @@ export default async function handler(req, res) {
       facts
     );
 
-    const deliverySafePacket = rebuildDeliverySafePacket(validationLayer, facts);
+    const finalStateMap = buildFinalDomainStateMap(correctedExactDomainSummary);
+    const validationLayer = rebuildValidationLayerFromFinalState(validationLayerAnchored, finalStateMap);
+    const deliverySafePacket = rebuildDeliverySafePacketFromFinalState(validationLayer, facts);
 
     const topLevelTruthSummary = buildTopLevelTruthSummary(core, astro, evidenceLayer);
+    const rebuiltSummary = buildSummaryFromFinalState({
+      correctedExactDomainSummary,
+      facts,
+      dob: input.dob,
+      stage2,
+      evidenceLayer
+    });
+
+    const rebuiltVerdict = buildForensicVerdictFromFinalState(
+      finalStateMap,
+      topLevelTruthSummary?.truth_level || "UNKNOWN"
+    );
 
     const payload = {
-      engine_status: "UNIVERSAL_PAST_NANO_SCANNER_V1",
+      engine_status: "UNIVERSAL_PAST_NANO_SCANNER_V2",
       system_status: "OK",
 
       mode: core?.subject_context?.question_mode || "GENERAL",
@@ -759,14 +953,14 @@ export default async function handler(req, res) {
       master_timeline: evidenceLayer?.master_timeline || [],
       current_carryover: stage2?.carryover || {},
       validation_block: evidenceLayer?.validation_block || {},
-      forensic_verdict: evidenceLayer?.forensic_verdict || {},
+      forensic_verdict: rebuiltVerdict,
       lokkotha_summary: evidenceLayer?.lokkotha_summary || {},
       project_paste_block: evidenceLayer?.project_paste_block || ""
     };
 
     if (input.format === "project") {
       return res.status(200).json({
-        engine_status: "UNIVERSAL_PAST_NANO_SCANNER_V1",
+        engine_status: "UNIVERSAL_PAST_NANO_SCANNER_V2",
         output_format: "project",
         subject_mode: core?.subject_context?.subject_mode || null,
         identity_depth: core?.subject_context?.identity_depth || null,
@@ -781,7 +975,7 @@ export default async function handler(req, res) {
 
     if (input.format === "compact") {
       return res.status(200).json({
-        engine_status: "UNIVERSAL_PAST_NANO_SCANNER_V1",
+        engine_status: "UNIVERSAL_PAST_NANO_SCANNER_V2",
         output_format: "compact",
         subject_mode: core?.subject_context?.subject_mode || null,
         identity_depth: core?.subject_context?.identity_depth || null,
@@ -790,74 +984,19 @@ export default async function handler(req, res) {
         validation_layer: validationLayer || {},
         identity_packet: identityPacket,
         delivery_safe_packet: deliverySafePacket,
-        summary: {
-          primary_domain: stage2?.question_profile?.primary_domain || "GENERAL",
-          total_events: evidenceLayer?.event_summary?.total_estimated_events || 0,
-          top_domains: safeArray(evidenceLayer?.ranked_domains)
-            .slice(0, 5)
-            .map((d) => d?.domain_label),
-
-          relationship: {
-            marriage_count: facts?.marriage_count_claim ?? evidenceLayer?.event_summary?.relationship?.marriage_count ?? 0,
-            broken_marriage_count: facts?.broken_marriage_claim ?? evidenceLayer?.event_summary?.relationship?.broken_marriage_count ?? 0,
-            current_marriage_status:
-              facts?.marriage_count_claim > 0
-                ? "EXECUTED"
-                : (evidenceLayer?.event_summary?.relationship?.current_marriage_status ?? "UNKNOWN"),
-            latest_relationship_event_type:
-              evidenceLayer?.event_summary?.relationship?.latest_relationship_event_type ?? null
-          },
-
-          work: {
-            dominant_work_mode: evidenceLayer?.event_summary?.work?.dominant_work_mode ?? "UNKNOWN",
-            education_active:
-              facts?.study_start_year_claim ? true : (evidenceLayer?.event_summary?.work?.education_active ?? false),
-            job_active:
-              facts?.job_start_year_claim ? true : (evidenceLayer?.event_summary?.work?.job_active ?? false),
-            business_active:
-              facts?.business_start_year_claim ? true : (evidenceLayer?.event_summary?.work?.business_active ?? false)
-          },
-
-          foreign: {
-            foreign_shift_count: evidenceLayer?.event_summary?.foreign?.foreign_shift_count ?? 0,
-            foreign_entry_year: facts?.foreign_entry_year_claim ?? evidenceLayer?.event_summary?.foreign?.foreign_entry_year ?? null,
-            settlement_year: facts?.settlement_year_claim ?? evidenceLayer?.event_summary?.foreign?.settlement_year ?? null,
-            foreign_process_status:
-              facts?.foreign_entry_year_claim
-                ? "EXECUTED"
-                : (evidenceLayer?.event_summary?.foreign?.foreign_process_status ?? null)
-          },
-
-          health:
-            facts?.debt_year_claim ? "PARTIAL" : (evidenceLayer?.event_summary?.health?.health_status ?? "UNKNOWN"),
-          money:
-            facts?.debt_year_claim ? "PARTIAL" : (evidenceLayer?.event_summary?.money?.money_status ?? "UNKNOWN"),
-          conflict:
-            facts?.settlement_refusal_year_claim || facts?.appeal_year_claim
-              ? "PARTIAL"
-              : (evidenceLayer?.event_summary?.conflict?.conflict_status ?? "UNKNOWN"),
-
-          timing_summary: evidenceLayer?.event_summary?.timing_summary || {},
-          truth_summary: evidenceLayer?.event_summary?.truth_summary || {},
-          recognition_lines: unique([
-            ...(safeArray(evidenceLayer?.event_summary?.recognition_lines)),
-            ...(deliverySafePacket.truth_lines || [])
-          ]),
-
-          current_carryover: stage2?.carryover?.present_carryover_detected || false
-        },
+        summary: rebuiltSummary,
         exact_domain_summary: correctedExactDomainSummary,
-        verdict: evidenceLayer?.forensic_verdict || {},
+        verdict: rebuiltVerdict,
         lokkotha_summary: evidenceLayer?.lokkotha_summary || {}
       });
     }
 
     return res.status(200).json(payload);
   } catch (error) {
-    console.error("UNIVERSAL PAST NANO SCANNER CRASH >>>", error);
+    console.error("UNIVERSAL PAST NANO SCANNER V2 CRASH >>>", error);
 
     return res.status(500).json({
-      engine_status: "UNIVERSAL_PAST_NANO_SCANNER_V1",
+      engine_status: "UNIVERSAL_PAST_NANO_SCANNER_V2",
       system_status: "ERROR",
       error_message: error instanceof Error ? error.message : "Unknown error",
       error_stack: error instanceof Error ? error.stack : null
