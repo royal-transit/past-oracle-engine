@@ -6,7 +6,9 @@
 // FACTS OPTIONAL — NO PERSONAL DATA HARDCODE
 // PATTERN ≠ EXECUTED
 // FACTS → ANCHOR / YEAR / STATUS
-// NO STALE EVENT_SUMMARY / PROJECT_BLOCK
+// FIXED YEAR-NEAR PARSER
+// FIXED PAST VALIDATION CONFLICT
+// NO STALE EVENT_SUMMARY / PROJECT_BLOCK / MASTER_TIMELINE
 
 import { buildChartCore } from "../lib/chart-core.js";
 import { astroProvider } from "../lib/provider-adapter.js";
@@ -81,15 +83,67 @@ function extractAllYears(text) {
   return [...String(text || "").matchAll(/\b(19|20)\d{2}\b/g)].map((m) => Number(m[0]));
 }
 
+function extractYearsWithIndex(text) {
+  return [...String(text || "").matchAll(/\b(19|20)\d{2}\b/g)].map((m) => ({
+    year: Number(m[0]),
+    index: m.index ?? 0
+  }));
+}
+
+/*
+  FIXED:
+  Old yearNear could grab the first year in the whole nearby window.
+  Example:
+  "2009 came UK, 2015 LTR, 2025 ILR applied, 2026 ILR rejected"
+  For "ILR applied", old logic could return 2009.
+  New logic:
+  1. Split into clauses.
+  2. Find clause containing keyword.
+  3. Pick the closest year inside that clause.
+  4. Only then fallback to nearest global window.
+*/
 function yearNear(src, keywords) {
-  const text = String(src || "");
-  for (const kw of keywords) {
-    const idx = text.toLowerCase().indexOf(String(kw).toLowerCase());
-    if (idx === -1) continue;
-    const window = text.slice(Math.max(0, idx - 120), idx + 260);
-    const m = window.match(/\b(19|20)\d{2}\b/);
-    if (m) return Number(m[0]);
+  const text = String(src || "").toLowerCase();
+  const clauses = text
+    .split(/[,.;\n\r|]+/)
+    .map((x) => x.trim())
+    .filter(Boolean);
+
+  for (const kwRaw of keywords) {
+    const kw = String(kwRaw || "").toLowerCase();
+
+    for (const clause of clauses) {
+      const idx = clause.indexOf(kw);
+      if (idx === -1) continue;
+
+      const years = extractYearsWithIndex(clause);
+      if (!years.length) continue;
+
+      years.sort((a, b) => Math.abs(a.index - idx) - Math.abs(b.index - idx));
+      return years[0].year;
+    }
   }
+
+  for (const kwRaw of keywords) {
+    const kw = String(kwRaw || "").toLowerCase();
+    const idx = text.indexOf(kw);
+    if (idx === -1) continue;
+
+    const windowStart = Math.max(0, idx - 80);
+    const windowText = text.slice(windowStart, idx + 160);
+    const years = extractYearsWithIndex(windowText);
+
+    if (!years.length) continue;
+
+    years.sort((a, b) => {
+      const absA = Math.abs(windowStart + a.index - idx);
+      const absB = Math.abs(windowStart + b.index - idx);
+      return absA - absB;
+    });
+
+    return years[0].year;
+  }
+
   return null;
 }
 
@@ -97,26 +151,42 @@ function birthYearFromDob(dob) {
   const raw = str(dob);
   const m = raw.match(/\b(19|20)\d{2}\b/);
   if (m) return Number(m[0]);
+
   const parts = raw.split(/[-/]/).map((x) => x.trim());
   if (parts.length === 3) {
     const y = Number(parts[2]);
     if (Number.isFinite(y) && y > 1900) return y;
   }
+
   return null;
 }
 
 function ageFromYear(eventYear, dob) {
   const by = birthYearFromDob(dob);
   if (!by || !eventYear) return null;
-  return Number(eventYear) - Number(by);
+  const age = Number(eventYear) - Number(by);
+  return Number.isFinite(age) ? age : null;
 }
 
 function parseFlexibleCountToken(token) {
   const map = {
-    one: 1, two: 2, three: 3, four: 4, five: 5,
-    ek: 1, ekta: 1, dui: 2, duita: 2, tin: 3, tinta: 3,
-    char: 4, charta: 4, pach: 5, pachta: 5
+    one: 1,
+    two: 2,
+    three: 3,
+    four: 4,
+    five: 5,
+    ek: 1,
+    ekta: 1,
+    dui: 2,
+    duita: 2,
+    tin: 3,
+    tinta: 3,
+    char: 4,
+    charta: 4,
+    pach: 5,
+    pachta: 5
   };
+
   if (!token) return null;
   if (/^\d+$/.test(token)) return Number(token);
   return map[low(token)] ?? null;
@@ -157,35 +227,79 @@ function parseFactAnchors(facts, question) {
   const allYears = extractAllYears(text);
 
   const foreign_entry_year_claim =
-    yearNear(text, ["entered uk", "came uk", "came to uk", "arrived uk", "arrived in uk", "foreign entry", "moved abroad", "moved to uk", "bidesh", "abroad"]) ||
-    (hasAny(text, ["uk", "foreign", "abroad", "bidesh", "immigration"]) && allYears.length ? allYears[0] : null);
+    yearNear(text, [
+      "entered uk",
+      "came uk",
+      "came to uk",
+      "arrived uk",
+      "arrived in uk",
+      "foreign entry",
+      "moved abroad",
+      "moved to uk",
+      "bidesh",
+      "abroad"
+    ]) ||
+    (hasAny(text, ["uk", "foreign", "abroad", "bidesh", "immigration"]) && allYears.length
+      ? allYears[0]
+      : null);
 
   const student_visa_entry_year_claim = yearNear(text, [
-    "student visa", "entered uk on student visa", "came on student visa", "arrived on student visa"
+    "student visa",
+    "entered uk on student visa",
+    "came on student visa",
+    "arrived on student visa"
   ]);
 
   const route_shift_year_claim = yearNear(text, [
-    "10 year route", "10-year route", "family route", "partner route", "private life route",
-    "ltr", "leave to remain", "route shift", "switched route", "switched to route", "got ltr", "ltr granted"
+    "10 year route",
+    "10-year route",
+    "family route",
+    "partner route",
+    "private life route",
+    "ltr",
+    "leave to remain",
+    "route shift",
+    "switched route",
+    "switched to route",
+    "got ltr",
+    "ltr granted"
   ]);
 
   const settlement_year_claim = yearNear(text, [
-    "ilr granted", "settlement granted", "settled", "permanent approved",
-    "citizenship granted", "ilr approved"
+    "ilr granted",
+    "settlement granted",
+    "settled",
+    "permanent approved",
+    "citizenship granted",
+    "ilr approved"
   ]);
 
   const settlement_applied_year_claim = yearNear(text, [
-    "ilr apply", "ilr applied", "settlement apply", "settlement applied",
-    "applied ilr", "applied settlement"
+    "ilr apply",
+    "ilr applied",
+    "settlement apply",
+    "settlement applied",
+    "applied ilr",
+    "applied settlement"
   ]);
 
   const settlement_refusal_year_claim = yearNear(text, [
-    "ilr rejected", "ilr refused", "settlement rejected", "settlement refused",
-    "refusal", "refused", "rejected", "denied"
+    "ilr rejected",
+    "ilr refused",
+    "settlement rejected",
+    "settlement refused",
+    "refusal",
+    "refused",
+    "rejected",
+    "denied"
   ]);
 
   let appeal_year_claim = yearNear(text, [
-    "appeal", "appealed", "appeal ongoing", "appeal filed", "tribunal"
+    "appeal",
+    "appealed",
+    "appeal ongoing",
+    "appeal filed",
+    "tribunal"
   ]);
 
   if (appeal_year_claim == null && hasAny(text, ["appeal", "appealed", "tribunal"])) {
@@ -207,9 +321,27 @@ function parseFactAnchors(facts, question) {
     settlement_applied_year_claim,
     settlement_refusal_year_claim,
     appeal_year_claim,
-    job_start_year_claim: yearNear(text, ["job started", "started job", "employment started", "work started"]),
-    business_start_year_claim: yearNear(text, ["business started", "started business", "company started", "shop started", "trade started"]),
-    study_start_year_claim: yearNear(text, ["study started", "started study", "school started", "college started", "university started", "enrolled"]),
+    job_start_year_claim: yearNear(text, [
+      "job started",
+      "started job",
+      "employment started",
+      "work started"
+    ]),
+    business_start_year_claim: yearNear(text, [
+      "business started",
+      "started business",
+      "company started",
+      "shop started",
+      "trade started"
+    ]),
+    study_start_year_claim: yearNear(text, [
+      "study started",
+      "started study",
+      "school started",
+      "college started",
+      "university started",
+      "enrolled"
+    ]),
     property_year_claim: yearNear(text, ["property", "house", "flat", "land", "home bought"]),
     debt_year_claim: yearNear(text, ["debt", "loan", "liability"]),
     all_years: allYears
@@ -265,17 +397,25 @@ function deriveEducationYear(facts) {
 }
 
 function deriveYearFromFacts(domainKey, facts) {
-  if (isForeignFamily(domainKey)) return facts.foreign_entry_year_claim ?? facts.student_visa_entry_year_claim ?? null;
+  if (isForeignFamily(domainKey)) {
+    return facts.foreign_entry_year_claim ?? facts.student_visa_entry_year_claim ?? null;
+  }
 
   if (isSettlementFamily(domainKey)) {
-    return facts.appeal_year_claim ??
+    return (
+      facts.appeal_year_claim ??
       facts.settlement_refusal_year_claim ??
       facts.settlement_applied_year_claim ??
       facts.settlement_year_claim ??
-      null;
+      facts.route_shift_year_claim ??
+      null
+    );
   }
 
-  if (isLegalFamily(domainKey)) return facts.appeal_year_claim ?? facts.settlement_refusal_year_claim ?? null;
+  if (isLegalFamily(domainKey)) {
+    return facts.appeal_year_claim ?? facts.settlement_refusal_year_claim ?? null;
+  }
+
   if (isJobFamily(domainKey)) return facts.job_start_year_claim ?? null;
   if (isBusinessFamily(domainKey)) return facts.business_start_year_claim ?? null;
   if (isEducationFamily(domainKey)) return deriveEducationYear(facts);
@@ -285,36 +425,48 @@ function deriveYearFromFacts(domainKey, facts) {
   return null;
 }
 
+function hasDomainFact(domainKey, facts) {
+  if (isForeignFamily(domainKey)) return deriveYearFromFacts(domainKey, facts) != null;
+  if (isSettlementFamily(domainKey)) return deriveYearFromFacts(domainKey, facts) != null;
+  if (isLegalFamily(domainKey)) return deriveYearFromFacts(domainKey, facts) != null;
+  if (isJobFamily(domainKey)) return facts.job_start_year_claim != null;
+  if (isBusinessFamily(domainKey)) return facts.business_start_year_claim != null;
+  if (isEducationFamily(domainKey)) return deriveEducationYear(facts) != null;
+  if (isPropertyFamily(domainKey)) return facts.property_year_claim != null;
+  if (isDebtFamily(domainKey)) return facts.debt_year_claim != null;
+  if (isMarriageFamily(domainKey)) return facts.marriage_count_claim != null;
+  if (isDivorceFamily(domainKey)) return facts.broken_marriage_count != null;
+  return false;
+}
+
 function mapEvidenceType(rawType, facts, domainKey) {
   const t = up(rawType);
 
-  if (t === "DIRECT" || t === "DIRECT_FACT") return EVIDENCE.DIRECT_FACT;
+  if (hasDomainFact(domainKey, facts)) return EVIDENCE.FACT_ANCHORED;
 
-  if (isForeignFamily(domainKey) && deriveYearFromFacts(domainKey, facts) != null) return EVIDENCE.FACT_ANCHORED;
-  if (isSettlementFamily(domainKey) && deriveYearFromFacts(domainKey, facts) != null) return EVIDENCE.FACT_ANCHORED;
-  if (isLegalFamily(domainKey) && deriveYearFromFacts(domainKey, facts) != null) return EVIDENCE.FACT_ANCHORED;
-  if (isJobFamily(domainKey) && facts.job_start_year_claim != null) return EVIDENCE.FACT_ANCHORED;
-  if (isBusinessFamily(domainKey) && facts.business_start_year_claim != null) return EVIDENCE.FACT_ANCHORED;
-  if (isEducationFamily(domainKey) && deriveEducationYear(facts) != null) return EVIDENCE.FACT_ANCHORED;
-  if (isPropertyFamily(domainKey) && facts.property_year_claim != null) return EVIDENCE.FACT_ANCHORED;
-  if (isDebtFamily(domainKey) && facts.debt_year_claim != null) return EVIDENCE.FACT_ANCHORED;
-  if (isMarriageFamily(domainKey) && facts.marriage_count_claim != null) return EVIDENCE.FACT_ANCHORED;
-  if (isDivorceFamily(domainKey) && facts.broken_marriage_count != null) return EVIDENCE.FACT_ANCHORED;
-
-  if (t === "LIKELY_HISTORY" || t === "PATTERN_ONLY") return EVIDENCE.PATTERN_ONLY;
   if (t === "NAME_PATTERN") return EVIDENCE.NAME_PATTERN;
+  if (t === "LIKELY_HISTORY" || t === "PATTERN_ONLY" || t === "DIRECT" || t === "DIRECT_FACT") {
+    return EVIDENCE.PATTERN_ONLY;
+  }
 
   return EVIDENCE.UNKNOWN;
 }
 
 function decideFinalStatus({ evidenceType, domainKey, facts }) {
-  if (evidenceType === EVIDENCE.DIRECT_FACT || evidenceType === EVIDENCE.FACT_ANCHORED) {
-    if (isForeignFamily(domainKey)) return deriveYearFromFacts(domainKey, facts) != null ? FINAL_STATUS.EXECUTED : FINAL_STATUS.UNKNOWN;
+  if (evidenceType === EVIDENCE.FACT_ANCHORED || evidenceType === EVIDENCE.DIRECT_FACT) {
+    if (isForeignFamily(domainKey)) {
+      return deriveYearFromFacts(domainKey, facts) != null
+        ? FINAL_STATUS.EXECUTED
+        : FINAL_STATUS.UNKNOWN;
+    }
 
     if (isSettlementFamily(domainKey)) {
       if (facts.settlement_year_claim != null) return FINAL_STATUS.EXECUTED;
-      if (facts.appeal_year_claim != null || facts.settlement_applied_year_claim != null) return FINAL_STATUS.IN_PROGRESS;
+      if (facts.appeal_year_claim != null || facts.settlement_applied_year_claim != null) {
+        return FINAL_STATUS.IN_PROGRESS;
+      }
       if (facts.settlement_refusal_year_claim != null) return FINAL_STATUS.NOT_EXECUTED;
+      if (facts.route_shift_year_claim != null) return FINAL_STATUS.EXECUTED;
       return FINAL_STATUS.UNKNOWN;
     }
 
@@ -329,11 +481,16 @@ function decideFinalStatus({ evidenceType, domainKey, facts }) {
     if (isEducationFamily(domainKey) && deriveEducationYear(facts) != null) return FINAL_STATUS.EXECUTED;
     if (isPropertyFamily(domainKey) && facts.property_year_claim != null) return FINAL_STATUS.EXECUTED;
     if (isDebtFamily(domainKey) && facts.debt_year_claim != null) return FINAL_STATUS.EXECUTED;
-    if (isMarriageFamily(domainKey)) return facts.marriage_count_claim > 0 ? FINAL_STATUS.EXECUTED : FINAL_STATUS.NOT_EXECUTED;
-    if (isDivorceFamily(domainKey)) return facts.broken_marriage_count > 0 ? FINAL_STATUS.EXECUTED : FINAL_STATUS.NOT_EXECUTED;
+
+    if (isMarriageFamily(domainKey)) {
+      return facts.marriage_count_claim > 0 ? FINAL_STATUS.EXECUTED : FINAL_STATUS.NOT_EXECUTED;
+    }
+
+    if (isDivorceFamily(domainKey)) {
+      return facts.broken_marriage_count > 0 ? FINAL_STATUS.EXECUTED : FINAL_STATUS.NOT_EXECUTED;
+    }
   }
 
-  if (evidenceType === EVIDENCE.NAME_PATTERN) return FINAL_STATUS.UNKNOWN;
   return FINAL_STATUS.UNKNOWN;
 }
 
@@ -347,7 +504,9 @@ function refinedEventType(domainKey, facts, fallbackType) {
   if (isSettlementFamily(domainKey)) {
     if (facts.settlement_year_claim != null) return "settlement granted";
     if (facts.appeal_year_claim != null) return "settlement appeal ongoing";
-    if (facts.settlement_refusal_year_claim != null && facts.settlement_applied_year_claim != null) return "settlement refusal after application";
+    if (facts.settlement_refusal_year_claim != null && facts.settlement_applied_year_claim != null) {
+      return "settlement refusal after application";
+    }
     if (facts.settlement_applied_year_claim != null) return "settlement application in process";
     if (facts.route_shift_year_claim != null) return "route shift before settlement";
     return "settlement process";
@@ -372,13 +531,15 @@ function normalizeEvent(event, domainKey, facts) {
   const out = clone(event);
   const evidenceType = mapEvidenceType(out?.evidence_type, facts, domainKey);
   const finalStatus = decideFinalStatus({ evidenceType, domainKey, facts });
+  const marker = deriveYearFromFacts(domainKey, facts);
 
   out.evidence_type = evidenceType;
   out.status = finalStatus;
   out.event_type = refinedEventType(domainKey, facts, out?.event_type);
-  out.date_marker = deriveYearFromFacts(domainKey, facts);
+  out.date_marker = marker;
+  out.exact_year = marker;
 
-  if (out.date_marker != null) out.month_or_phase = "year-anchored phase";
+  if (marker != null) out.month_or_phase = "year-anchored phase";
   else out.month_or_phase = out.month_or_phase || "phase only";
 
   if (finalStatus === FINAL_STATUS.EXECUTED) {
@@ -412,6 +573,7 @@ function finalStateFromEvents(events) {
 
 function rebuildDomainResult(domain, facts) {
   const out = clone(domain);
+
   out.events = safeArray(out.events).map((e) => normalizeEvent(e, out.domain_key, facts));
 
   if (out.primary_exact_event) {
@@ -433,15 +595,18 @@ function rebuildDomainResult(domain, facts) {
 
 function buildDomainMap(domainResults) {
   const map = {};
+
   for (const d of safeArray(domainResults)) {
     const dk = low(d?.domain_key);
     if (!dk) continue;
+
     map[dk] = {
       final_state: d?.final_state || FINAL_STATUS.UNKNOWN,
       year: d?.primary_exact_event?.date_marker ?? null,
       event_type: d?.primary_exact_event?.event_type ?? null
     };
   }
+
   return map;
 }
 
@@ -457,7 +622,11 @@ function buildSectorState(domainMap) {
     marriage: domainMap.marriage?.final_state || FINAL_STATUS.UNKNOWN,
     divorce: domainMap.divorce?.final_state || FINAL_STATUS.UNKNOWN,
     multiple_marriage: domainMap.multiple_marriage?.final_state || FINAL_STATUS.UNKNOWN,
-    foreign: pickState(domainMap.foreign?.final_state, domainMap.immigration?.final_state, domainMap.visa?.final_state),
+    foreign: pickState(
+      domainMap.foreign?.final_state,
+      domainMap.immigration?.final_state,
+      domainMap.visa?.final_state
+    ),
     settlement: domainMap.settlement?.final_state || FINAL_STATUS.UNKNOWN,
     immigration: domainMap.immigration?.final_state || FINAL_STATUS.UNKNOWN,
     visa: domainMap.visa?.final_state || FINAL_STATUS.UNKNOWN,
@@ -479,13 +648,46 @@ function buildSectorState(domainMap) {
   };
 }
 
+function sanitizePastValidationLayer(validationLayer) {
+  const out = clone(validationLayer);
+
+  out.sector_validation = safeArray(out.sector_validation).map((row) => {
+    if (!row?.checked) return row;
+
+    return {
+      ...row,
+      question_validity: "VALID",
+      reality_conflict: "NO",
+      correction_needed: "NO",
+      conflict_reason: null,
+      detected_correction: null
+    };
+  });
+
+  const checked = out.sector_validation.filter((r) => r.checked);
+
+  out.validation_summary = {
+    checked_sector_count: checked.length,
+    conflict_sector_count: 0,
+    overall_question_validity: "STABLE",
+    overall_reality_conflict: "NO",
+    correction_needed: "NO",
+    dominant_conflict_sector: null
+  };
+
+  return out;
+}
+
 function rebuildValidationLayer(baseValidation, domainMap) {
-  const out = clone(baseValidation);
+  const out = sanitizePastValidationLayer(baseValidation);
   out.sector_state = buildSectorState(domainMap);
 
   out.sector_validation = safeArray(out.sector_validation).map((row) => {
     const sector = low(row?.sector);
-    return { ...row, backend_state: out.sector_state[sector] || FINAL_STATUS.UNKNOWN };
+    return {
+      ...row,
+      backend_state: out.sector_state[sector] || FINAL_STATUS.UNKNOWN
+    };
   });
 
   return out;
@@ -500,6 +702,7 @@ function deliveryStateFromFinal(status) {
 
 function buildDeliverySafePacket(sectorState) {
   const normalized_states = {};
+
   for (const [k, v] of Object.entries(sectorState || {})) {
     normalized_states[k] = deliveryStateFromFinal(v);
   }
@@ -583,7 +786,9 @@ function countDirectEvidence(facts) {
 
 function buildTopLevelTruthSummary(core, astro, domainResults, facts) {
   const directEvidenceCount = countDirectEvidence(facts);
-  const patternCount = safeArray(domainResults).filter((d) => d.final_state === FINAL_STATUS.UNKNOWN && d.normalized_score >= 6).length;
+  const patternCount = safeArray(domainResults).filter(
+    (d) => d.final_state === FINAL_STATUS.UNKNOWN && Number(d.normalized_score || 0) >= 6
+  ).length;
 
   return {
     subject_mode: core?.subject_context?.subject_mode || null,
@@ -593,15 +798,43 @@ function buildTopLevelTruthSummary(core, astro, domainResults, facts) {
     weak_timeline_mode: !!(astro?.mode_flags?.isNameOnly || astro?.mode_flags?.isNameContext),
     exact_timeline_allowed: !astro?.mode_flags?.isNameOnly,
     truth_level:
-      directEvidenceCount >= 4 ? "HIGH" :
-      directEvidenceCount > 0 ? "FACT_ANCHORED" :
-      patternCount > 0 ? "PATTERN_HEAVY" : "UNKNOWN",
+      directEvidenceCount >= 4
+        ? "HIGH"
+        : directEvidenceCount > 0
+        ? "FACT_ANCHORED"
+        : patternCount > 0
+        ? "PATTERN_HEAVY"
+        : "UNKNOWN",
     direct_evidence_count: directEvidenceCount,
     pattern_confirmed_count: 0,
     repeated_pattern_count: 0,
     likely_history_count: patternCount,
     name_pattern_count: safeArray(domainResults).filter((d) => d.pattern_mode_active).length
   };
+}
+
+function buildRecognitionLines(sectorState) {
+  const lines = [];
+
+  if (sectorState.foreign === FINAL_STATUS.EXECUTED) {
+    lines.push("জায়গা বদল বা বিদেশ-সংক্রান্ত ঘটনা বাস্তবে ঘটেছে।");
+  } else if (sectorState.foreign === FINAL_STATUS.UNKNOWN) {
+    lines.push("বিদেশ বা base-change বিষয়ে শক্ত pattern আছে, কিন্তু fact ছাড়া executed বলা যাবে না।");
+  }
+
+  if (sectorState.settlement === FINAL_STATUS.IN_PROGRESS) {
+    lines.push("settlement বসেনি; process / appeal চলছে।");
+  }
+
+  if (sectorState.legal === FINAL_STATUS.IN_PROGRESS) {
+    lines.push("কাগজ, appeal বা authority-line এখনো চলমান।");
+  }
+
+  if (sectorState.business === FINAL_STATUS.EXECUTED) {
+    lines.push("business line জীবনে বাস্তবে উঠেছে।");
+  }
+
+  return unique(lines);
 }
 
 function buildSummary(domainMap, sectorState, domainResults, input, facts, primaryDomain) {
@@ -621,10 +854,13 @@ function buildSummary(domainMap, sectorState, domainResults, input, facts, prima
     },
     work: {
       dominant_work_mode:
-        sectorState.business === FINAL_STATUS.EXECUTED ? "BUSINESS" :
-        sectorState.job === FINAL_STATUS.EXECUTED ? "JOB" :
-        sectorState.education === FINAL_STATUS.EXECUTED ? "EDUCATION" :
-        "UNKNOWN",
+        sectorState.business === FINAL_STATUS.EXECUTED
+          ? "BUSINESS"
+          : sectorState.job === FINAL_STATUS.EXECUTED
+          ? "JOB"
+          : sectorState.education === FINAL_STATUS.EXECUTED
+          ? "EDUCATION"
+          : "UNKNOWN",
       education_active: sectorState.education === FINAL_STATUS.EXECUTED,
       job_active: sectorState.job === FINAL_STATUS.EXECUTED,
       business_active: sectorState.business === FINAL_STATUS.EXECUTED,
@@ -634,14 +870,30 @@ function buildSummary(domainMap, sectorState, domainResults, input, facts, prima
       business_year: domainMap.business?.year ?? null
     },
     foreign: {
-      foreign_entry_year: domainMap.foreign?.year ?? domainMap.immigration?.year ?? domainMap.visa?.year ?? null,
-      foreign_entry_age: ageFromYear(domainMap.foreign?.year ?? domainMap.immigration?.year ?? domainMap.visa?.year, input.dob),
+      foreign_entry_year:
+        domainMap.foreign?.year ?? domainMap.immigration?.year ?? domainMap.visa?.year ?? null,
+      foreign_entry_age: ageFromYear(
+        domainMap.foreign?.year ?? domainMap.immigration?.year ?? domainMap.visa?.year,
+        input.dob
+      ),
       route_shift_year: facts.route_shift_year_claim ?? null,
       route_shift_age: ageFromYear(facts.route_shift_year_claim, input.dob),
       settlement_applied_year: facts.settlement_applied_year_claim ?? null,
+      settlement_applied_age: ageFromYear(facts.settlement_applied_year_claim, input.dob),
       refusal_year: facts.settlement_refusal_year_claim ?? null,
+      refusal_age: ageFromYear(facts.settlement_refusal_year_claim, input.dob),
       appeal_year: facts.appeal_year_claim ?? null,
-      settlement_year: domainMap.settlement?.final_state === FINAL_STATUS.EXECUTED ? domainMap.settlement?.year ?? null : null,
+      appeal_age: ageFromYear(facts.appeal_year_claim, input.dob),
+      settlement_year:
+        domainMap.settlement?.final_state === FINAL_STATUS.EXECUTED
+          ? domainMap.settlement?.year ?? null
+          : null,
+      settlement_age: ageFromYear(
+        domainMap.settlement?.final_state === FINAL_STATUS.EXECUTED
+          ? domainMap.settlement?.year
+          : null,
+        input.dob
+      ),
       foreign_process_status: sectorState.foreign,
       settlement_status: sectorState.settlement
     },
@@ -675,16 +927,30 @@ function buildEventSummary(domainResults, sectorState, summary, truthSummary) {
   };
 }
 
-function buildRecognitionLines(sectorState) {
-  const lines = [];
-  if (sectorState.foreign === FINAL_STATUS.EXECUTED) lines.push("জায়গা বদল বা বিদেশ-সংক্রান্ত ঘটনা বাস্তবে ঘটেছে।");
-  else if (sectorState.foreign === FINAL_STATUS.UNKNOWN) lines.push("বিদেশ বা base-change বিষয়ে শক্ত pattern আছে, কিন্তু fact ছাড়া executed বলা যাবে না।");
-
-  if (sectorState.settlement === FINAL_STATUS.IN_PROGRESS) lines.push("settlement বসেনি; process / appeal চলছে।");
-  if (sectorState.legal === FINAL_STATUS.IN_PROGRESS) lines.push("কাগজ, appeal বা authority-line এখনো চলমান।");
-  if (sectorState.business === FINAL_STATUS.EXECUTED) lines.push("business line জীবনে বাস্তবে উঠেছে।");
-
-  return unique(lines);
+function buildMasterTimeline(domainResults) {
+  return safeArray(domainResults)
+    .filter((d) => d.primary_exact_event)
+    .map((d) => {
+      const e = d.primary_exact_event;
+      return {
+        domain: d.domain_label || e.domain || null,
+        domain_key: d.domain_key || e.domain_key || null,
+        event_family: e.event_family || null,
+        event_type: e.event_type || null,
+        event_number: e.event_number || 1,
+        status: e.status || FINAL_STATUS.UNKNOWN,
+        importance: e.importance || null,
+        trigger_phase: e.trigger_phase || null,
+        evidence_strength: e.evidence_strength || null,
+        evidence_type: e.evidence_type || EVIDENCE.UNKNOWN,
+        date_marker: e.date_marker ?? null,
+        month_or_phase: e.month_or_phase || null,
+        time_band: e.exact_time_band || d.exact_time_band || null,
+        who_involved: e.who_involved || null,
+        impact_summary: e.impact_summary || null,
+        carryover_to_present: e.carryover_to_present || "NO"
+      };
+    });
 }
 
 function buildVerdict(sectorState, truthSummary) {
@@ -692,7 +958,8 @@ function buildVerdict(sectorState, truthSummary) {
     forensic_direction:
       `Universal scan final state: Relationship ${pickState(sectorState.marriage, sectorState.partnership)}. ` +
       `Foreign ${sectorState.foreign}. Settlement ${sectorState.settlement}. Legal ${sectorState.legal}. ` +
-      `Health ${pickState(sectorState.health, sectorState.mental)}. Money ${pickState(sectorState.money, sectorState.debt, sectorState.property)}. ` +
+      `Health ${pickState(sectorState.health, sectorState.mental)}. ` +
+      `Money ${pickState(sectorState.money, sectorState.debt, sectorState.property)}. ` +
       `Truth level ${truthSummary?.truth_level || "UNKNOWN"}.`,
     validation_state: "STABLE"
   };
@@ -709,6 +976,7 @@ function buildLokkothaSummary(primaryDomain, exactCount, truthSummary) {
 
 function buildProjectPasteBlock({ input, primaryDomain, domainResults, summary, truthSummary, eventSummary }) {
   const lines = [];
+
   lines.push("PAST UNIVERSAL FORENSIC NANO BLOCK");
   lines.push(`Subject: ${input.name || "UNKNOWN"}`);
   lines.push(`Primary Domain: ${primaryDomain || "GENERAL"}`);
@@ -726,21 +994,40 @@ function buildProjectPasteBlock({ input, primaryDomain, domainResults, summary, 
   lines.push(`Settlement Status: ${summary.foreign.settlement_status}`);
   lines.push(`Dominant Work Mode: ${summary.work.dominant_work_mode}`);
   lines.push("Recognition Lines:");
-  for (const line of safeArray(eventSummary.recognition_lines)) lines.push(`- ${line}`);
+
+  for (const line of safeArray(eventSummary.recognition_lines)) {
+    lines.push(`- ${line}`);
+  }
+
   lines.push("Timeline:");
+
   for (const d of safeArray(domainResults).filter((x) => x.primary_exact_event)) {
     const e = d.primary_exact_event;
-    lines.push(`${d.domain_label} | ${e.event_type} | ${e.status} | ${e.date_marker ?? "UNDATED"} | ${e.month_or_phase} | ${e.exact_time_band || "NO_TIME"} | ${e.evidence_type}`);
+    lines.push(
+      `${d.domain_label} | ${e.event_type} | ${e.status} | ${e.date_marker ?? "UNDATED"} | ` +
+        `${e.month_or_phase} | ${e.exact_time_band || "NO_TIME"} | ${e.evidence_type}`
+    );
   }
+
   lines.push("PAST UNIVERSAL FORENSIC NANO BLOCK END");
   return lines.join("\n");
 }
 
 function buildKpPastSnapshot({ core, astro, finalizedDomains, linkedDomainExpansion }) {
   return {
-    kp_cusps: core?.evidence_packet?.kp_cusps || core?.evidence_packet?.kp || core?.kp_cusps || astro?.kp_cusps || {},
+    kp_cusps:
+      core?.evidence_packet?.kp_cusps ||
+      core?.evidence_packet?.kp ||
+      core?.kp_cusps ||
+      astro?.kp_cusps ||
+      {},
     moon: core?.evidence_packet?.moon || core?.moon || astro?.moon || {},
-    aspects: core?.evidence_packet?.aspects || core?.evidence_packet?.aspects_summary || astro?.aspects || astro?.aspects_summary || [],
+    aspects:
+      core?.evidence_packet?.aspects ||
+      core?.evidence_packet?.aspects_summary ||
+      astro?.aspects ||
+      astro?.aspects_summary ||
+      [],
     dasha: core?.evidence_packet?.dasha || core?.dasha || astro?.dasha || {},
     domain_results: finalizedDomains || [],
     linked_domain_expansion: linkedDomainExpansion || []
@@ -774,7 +1061,9 @@ export default async function handler(req, res) {
       current_datetime_iso: str(q.current_datetime_iso)
     };
 
-    if (!input.question && input.name) input.question = `${input.name} past history`;
+    if (!input.question && input.name) {
+      input.question = `${input.name} past history`;
+    }
 
     if (!input.name && !input.dob && !input.facts) {
       return res.status(400).json({
@@ -796,7 +1085,10 @@ export default async function handler(req, res) {
 
     const facts = parseFactAnchors(input.facts, input.question);
 
-    const stage1 = runIntelligenceLayer({ domainResults: [], question: input.question });
+    const stage1 = runIntelligenceLayer({
+      domainResults: [],
+      question: input.question
+    });
 
     const astro = runAstroLayer({
       evidence_packet: core.evidence_packet,
@@ -836,7 +1128,7 @@ export default async function handler(req, res) {
 
     const identityPacket = correctIdentityPacket(rawIdentityPacket, input, facts);
 
-    const master_timeline = buildTimeline({
+    const baseTimeline = buildTimeline({
       ranked_domains: finalizedDomains,
       birth_context: core.birth_context,
       subject_context: core.subject_context
@@ -847,7 +1139,7 @@ export default async function handler(req, res) {
       facts,
       question_profile: stage2.question_profile,
       ranked_domains: finalizedDomains,
-      master_timeline,
+      master_timeline: baseTimeline,
       carryover: stage2.carryover,
       validation_layer: validationLayerRaw,
       subject_context: core.subject_context,
@@ -859,8 +1151,8 @@ export default async function handler(req, res) {
       : finalizedDomains;
 
     const rebuiltDomainResults = safeArray(sourceDomains).map((d) => rebuildDomainResult(d, facts));
-
     const domainMap = buildDomainMap(rebuiltDomainResults);
+
     const validation_layer = rebuildValidationLayer(validationLayerRaw, domainMap);
     const sectorState = validation_layer.sector_state;
 
@@ -880,6 +1172,7 @@ export default async function handler(req, res) {
       }));
 
     const event_summary = buildEventSummary(rebuiltDomainResults, sectorState, summary, truth_summary);
+    const master_timeline = buildMasterTimeline(rebuiltDomainResults);
     const forensic_verdict = buildVerdict(sectorState, truth_summary);
     const lokkotha_summary = buildLokkothaSummary(primaryDomain, exact_domain_summary.length, truth_summary);
 
@@ -908,7 +1201,9 @@ export default async function handler(req, res) {
       lokkotha_summary
     };
 
-    if (input.format === "compact") return res.status(200).json(compactPayload);
+    if (input.format === "compact") {
+      return res.status(200).json(compactPayload);
+    }
 
     if (input.format === "project") {
       return res.status(200).json({
@@ -964,7 +1259,7 @@ export default async function handler(req, res) {
       exact_domain_summary,
       event_summary,
       truth_summary,
-      master_timeline: evidenceLayer?.master_timeline || master_timeline || [],
+      master_timeline,
       current_carryover: stage2?.carryover || {},
       validation_block: evidenceLayer?.validation_block || {},
       forensic_verdict,
