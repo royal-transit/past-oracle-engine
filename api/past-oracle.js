@@ -6,6 +6,7 @@
 // SETTLEMENT != FOREIGN ENTRY
 // ROUTE SHIFT != EDUCATION
 // EDUCATION YEAR HARD SCOPED OVERRIDE
+// KP PAST VALIDATION INJECTION FIXED
 
 import { buildChartCore } from "../lib/chart-core.js";
 import { astroProvider } from "../lib/provider-adapter.js";
@@ -704,7 +705,6 @@ function applyEducationHardOverride(domainResults, summary, facts, inputDob) {
     if (up(domain?.domain_key) !== "EDUCATION") return domain;
 
     const next = clone(domain);
-
     next.final_state = FINAL_STATUS.EXECUTED;
 
     if (next.primary_exact_event) {
@@ -1122,6 +1122,48 @@ function buildTopLevelTruthSummary(core, astro, evidenceLayer, facts) {
 }
 
 /* =====================================
+   KP SNAPSHOT BUILDER
+===================================== */
+
+function buildKpPastSnapshot({ core, astro }) {
+  return {
+    kp_cusps:
+      core?.evidence_packet?.kp_cusps ||
+      core?.evidence_packet?.kp ||
+      core?.kp_cusps ||
+      astro?.kp_cusps ||
+      {},
+
+    moon:
+      core?.evidence_packet?.moon ||
+      core?.moon ||
+      astro?.moon ||
+      {},
+
+    aspects:
+      core?.evidence_packet?.aspects ||
+      core?.evidence_packet?.aspects_summary ||
+      astro?.aspects ||
+      astro?.aspects_summary ||
+      [],
+
+    dasha:
+      core?.evidence_packet?.dasha ||
+      core?.dasha ||
+      astro?.dasha ||
+      {}
+  };
+}
+
+function buildKpEventInput({ input, stage2 }) {
+  return {
+    event: input.facts || input.question,
+    domain: stage2?.question_profile?.primary_domain || "GENERAL",
+    question: input.question
+  };
+}
+
+/* =====================================
    MAIN
 ===================================== */
 
@@ -1187,9 +1229,14 @@ export default async function handler(req, res) {
 
     const finalizedDomains = runEventFinalizer(stage2.ranked_domains);
 
+    const kpSnapshot = buildKpPastSnapshot({ core, astro });
+    const kpEventInput = buildKpEventInput({ input, stage2 });
+
     const validationLayerRaw = runValidationLayer({
       question: input.question,
-      finalizedDomains
+      finalizedDomains,
+      snapshot: kpSnapshot,
+      eventInput: kpEventInput
     });
 
     const rawIdentityPacket = buildIdentityPacket({
