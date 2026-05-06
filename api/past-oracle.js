@@ -1,8 +1,11 @@
 // api/past-oracle.js
-// FULL REPLACEMENT — UNIVERSAL_PAST_NANO_SCANNER_V8.4
-// Pipeline:
-// ChartCore → AstroLayer → Intelligence → EventFinalizer → TimelineCollapser
-// → FactAnchorMerger → Validation → EvidenceLayer → Final Payload
+// FULL REPLACEMENT — UNIVERSAL_PAST_NANO_SCANNER_V8.5
+// Fix:
+// - Strong fact parser: no cross-domain year contamination
+// - entered uk 2009 => foreign_entry_year_claim = 2009
+// - love 2014 => love_year_claim = 2014
+// - study started 2007 => study_start_year_claim = 2007
+// - Pipeline includes TimelineCollapser + FactAnchorMerger
 
 import { buildChartCore } from "../lib/chart-core.js";
 import { astroProvider } from "../lib/provider-adapter.js";
@@ -16,7 +19,7 @@ import { runFactAnchorMerger } from "../lib/fact-anchor-merger.js";
 import { buildIdentityPacket } from "../lib/identity-packet.js";
 import { correctIdentityPacket } from "../lib/domain-corrector.js";
 
-const ENGINE_STATUS = "UNIVERSAL_PAST_NANO_SCANNER_V8.4";
+const ENGINE_STATUS = "UNIVERSAL_PAST_NANO_SCANNER_V8.5";
 
 function str(v) {
   return v == null ? "" : String(v).trim();
@@ -53,6 +56,7 @@ function splitFactClauses(text) {
     .replace(/\band then\b/gi, ",")
     .replace(/\bthen\b/gi, ",")
     .replace(/\bafter that\b/gi, ",")
+    .replace(/\s+(?=(love|romance|relationship|entered uk|came to uk|arrived in uk|study started|started study|student visa|visa|marriage|married|divorce|separation|settlement|ilr|appeal|job started|business started|property|debt|mental|health)\b)/gi, ",")
     .split(/[,\n;|]+/)
     .map((x) => x.trim())
     .filter(Boolean);
@@ -63,36 +67,24 @@ function firstYearInText(text) {
   return m ? Number(m[0]) : null;
 }
 
-function lastYearInText(text) {
-  const yrs = extractAllYears(text);
-  return yrs.length ? yrs[yrs.length - 1] : null;
-}
-
-function clauseYearByKeywords(src, keywords) {
-  const clauses = splitFactClauses(src);
-  for (const clause of clauses) {
-    if (hasAny(clause, keywords)) {
-      const y = firstYearInText(clause);
-      if (y != null) return y;
-    }
-  }
-  return null;
+function escapeRx(s) {
+  return String(s || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function yearNear(src, keywords) {
-  const text = String(src || "");
-  const clauseYear = clauseYearByKeywords(text, keywords);
-  if (clauseYear != null) return clauseYear;
+  const text = String(src || "").toLowerCase();
+  const clauses = splitFactClauses(text);
+
+  for (const clause of clauses) {
+    if (!hasAny(clause, keywords)) continue;
+    const y = firstYearInText(clause);
+    if (y != null) return y;
+  }
 
   for (const kw of keywords) {
-    const idx = text.toLowerCase().indexOf(String(kw).toLowerCase());
-    if (idx === -1) continue;
-
-    const afterYear = firstYearInText(text.slice(idx, idx + 180));
-    if (afterYear != null) return afterYear;
-
-    const beforeYear = lastYearInText(text.slice(Math.max(0, idx - 120), idx));
-    if (beforeYear != null) return beforeYear;
+    const rx = new RegExp(`${escapeRx(kw)}\\s+(?:in\\s+|on\\s+|at\\s+)?((?:19|20)\\d{2})`, "i");
+    const m = text.match(rx);
+    if (m) return Number(m[1]);
   }
 
   return null;
@@ -141,50 +133,7 @@ function parseFactAnchors(facts, question) {
   const text = rawText.toLowerCase();
   const allYears = extractAllYears(text);
 
-  const foreign_entry_year_claim =
-    yearNear(text, [
-      "entered uk", "came to uk", "came uk", "arrived in uk", "arrived uk",
-      "foreign entry", "moved abroad", "moved to uk", "bidesh", "abroad"
-    ]) ||
-    (hasAny(text, ["uk", "foreign", "abroad", "bidesh", "immigration"]) && allYears.length
-      ? allYears[0]
-      : null);
-
-  const student_visa_entry_year_claim = yearNear(text, [
-    "student visa", "entered uk on student visa", "came on student visa", "arrived on student visa"
-  ]);
-
-  const route_shift_year_claim = yearNear(text, [
-    "10 year route", "10-year route", "family route", "partner route",
-    "private life route", "ltr", "leave to remain", "route shift",
-    "switched route", "switched to route", "got ltr", "ltr granted"
-  ]);
-
-  const settlement_year_claim = yearNear(text, [
-    "ilr granted", "settlement granted", "settled", "permanent approved",
-    "citizenship granted", "ilr approved"
-  ]);
-
-  const settlement_applied_year_claim = yearNear(text, [
-    "ilr applied", "ilr apply", "applied ilr", "settlement applied",
-    "settlement apply", "applied settlement"
-  ]);
-
-  const settlement_refusal_year_claim = yearNear(text, [
-    "ilr rejected", "ilr refused", "settlement rejected", "settlement refused",
-    "rejected", "refused", "refusal", "denied"
-  ]);
-
-  let appeal_year_claim = yearNear(text, [
-    "appeal ongoing", "appeal filed", "appealed", "appeal", "tribunal"
-  ]);
-
-  if (appeal_year_claim == null && hasAny(text, ["appeal", "appealed", "tribunal"])) {
-    appeal_year_claim =
-      settlement_refusal_year_claim ||
-      settlement_applied_year_claim ||
-      (allYears.length ? allYears[allYears.length - 1] : null);
-  }
+  const appealYear = yearNear(text, ["appeal ongoing", "appeal filed", "appealed", "appeal", "tribunal"]);
 
   return {
     provided: !!rawText,
@@ -193,38 +142,53 @@ function parseFactAnchors(facts, question) {
     marriage_count_claim: extractMarriageCount(text),
     broken_marriage_count: extractBrokenMarriageCount(text),
 
-    marriage_year_claim: yearNear(text, [
-      "married", "marriage", "biye", "bea", "nikah", "wedding"
-    ]),
-    divorce_year_claim: yearNear(text, [
-      "divorce", "separation", "separated", "talak", "broken marriage"
-    ]),
-    broken_marriage_year_claim: yearNear(text, [
-      "broken marriage", "marriage broken", "divorce", "separation"
+    love_year_claim: yearNear(text, ["love", "romance", "relationship started", "attachment"]),
+    partnership_year_claim: yearNear(text, ["partnership", "contract", "partnered"]),
+    marriage_year_claim: yearNear(text, ["married", "marriage", "biye", "bea", "nikah", "wedding"]),
+    divorce_year_claim: yearNear(text, ["divorce", "separation", "separated", "talak", "broken marriage"]),
+    broken_marriage_year_claim: yearNear(text, ["broken marriage", "marriage broken", "divorce", "separation"]),
+
+    foreign_entry_year_claim: yearNear(text, [
+      "entered uk", "came to uk", "came uk", "arrived in uk", "arrived uk",
+      "foreign entry", "moved abroad", "moved to uk", "bidesh", "abroad"
     ]),
 
-    foreign_entry_year_claim,
-    student_visa_entry_year_claim,
-    route_shift_year_claim,
-    settlement_year_claim,
-    settlement_applied_year_claim,
-    settlement_refusal_year_claim,
-    appeal_year_claim,
+    student_visa_entry_year_claim: yearNear(text, [
+      "student visa", "entered uk on student visa", "came on student visa", "arrived on student visa"
+    ]),
 
-    job_start_year_claim: yearNear(text, [
-      "job started", "started job", "employment started", "work started"
+    visa_year_claim: yearNear(text, ["visa", "permission", "approval"]),
+
+    route_shift_year_claim: yearNear(text, [
+      "10 year route", "10-year route", "family route", "partner route",
+      "private life route", "ltr", "leave to remain", "route shift",
+      "switched route", "switched to route", "got ltr", "ltr granted"
     ]),
-    business_start_year_claim: yearNear(text, [
-      "business started", "started business", "company started", "shop started", "trade started"
+
+    settlement_year_claim: yearNear(text, [
+      "ilr granted", "settlement granted", "settled", "permanent approved",
+      "citizenship granted", "ilr approved"
     ]),
-    study_start_year_claim: yearNear(text, [
-      "study started", "started study", "school started", "college started",
-      "university started", "enrolled"
+
+    settlement_applied_year_claim: yearNear(text, [
+      "ilr applied", "ilr apply", "applied ilr", "settlement applied",
+      "settlement apply", "applied settlement"
     ]),
-    property_year_claim: yearNear(text, [
-      "property", "house", "flat", "land", "home bought", "car bought", "vehicle bought"
+
+    settlement_refusal_year_claim: yearNear(text, [
+      "ilr rejected", "ilr refused", "settlement rejected", "settlement refused",
+      "rejected", "refused", "refusal", "denied"
     ]),
+
+    appeal_year_claim: appealYear,
+
+    job_start_year_claim: yearNear(text, ["job started", "started job", "employment started", "work started"]),
+    business_start_year_claim: yearNear(text, ["business started", "started business", "company started", "shop started", "trade started"]),
+    study_start_year_claim: yearNear(text, ["study started", "started study", "school started", "college started", "university started", "enrolled"]),
+    property_year_claim: yearNear(text, ["property", "house", "flat", "land", "home bought", "car bought", "vehicle bought"]),
     debt_year_claim: yearNear(text, ["debt", "loan", "liability"]),
+    mental_year_claim: yearNear(text, ["mental", "stress", "depression", "anxiety"]),
+    health_year_claim: yearNear(text, ["health", "illness", "hospital", "surgery"]),
 
     all_years: allYears
   };
