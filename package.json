@@ -4,8 +4,7 @@
   "type": "module",
 
   "scripts": {
-    "build": "echo build-complete",
-    "start": "node server.js"
+    "build": "echo build-complete"
   },
 
   "dependencies": {}
