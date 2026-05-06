@@ -1,8 +1,8 @@
 // api/past-oracle.js
-// FULL REPLACEMENT — UNIVERSAL_PAST_NANO_SCANNER_V8.3
-// MAIN ORCHESTRATOR FIX
-// TimelineCollapser is now active after EventFinalizer
-// EvidenceLayer receives collapsed domains
+// FULL REPLACEMENT — UNIVERSAL_PAST_NANO_SCANNER_V8.4
+// Pipeline:
+// ChartCore → AstroLayer → Intelligence → EventFinalizer → TimelineCollapser
+// → FactAnchorMerger → Validation → EvidenceLayer → Final Payload
 
 import { buildChartCore } from "../lib/chart-core.js";
 import { astroProvider } from "../lib/provider-adapter.js";
@@ -12,10 +12,11 @@ import { runEvidenceLayer } from "../lib/layer-evidence.js";
 import { runEventFinalizer } from "../lib/event-finalizer.js";
 import { runValidationLayer } from "../lib/layer-validation.js";
 import { runTimelineCollapser } from "../lib/timeline-collapser.js";
+import { runFactAnchorMerger } from "../lib/fact-anchor-merger.js";
 import { buildIdentityPacket } from "../lib/identity-packet.js";
 import { correctIdentityPacket } from "../lib/domain-corrector.js";
 
-const ENGINE_STATUS = "UNIVERSAL_PAST_NANO_SCANNER_V8.3";
+const ENGINE_STATUS = "UNIVERSAL_PAST_NANO_SCANNER_V8.4";
 
 function str(v) {
   return v == null ? "" : String(v).trim();
@@ -99,21 +100,10 @@ function yearNear(src, keywords) {
 
 function parseFlexibleCountToken(token) {
   const map = {
-    one: 1,
-    two: 2,
-    three: 3,
-    four: 4,
-    five: 5,
-    ek: 1,
-    ekta: 1,
-    dui: 2,
-    duita: 2,
-    tin: 3,
-    tinta: 3,
-    char: 4,
-    charta: 4,
-    pach: 5,
-    pachta: 5
+    one: 1, two: 2, three: 3, four: 4, five: 5,
+    ek: 1, ekta: 1, dui: 2, duita: 2,
+    tin: 3, tinta: 3, char: 4, charta: 4,
+    pach: 5, pachta: 5
   };
 
   if (!token) return null;
@@ -153,78 +143,40 @@ function parseFactAnchors(facts, question) {
 
   const foreign_entry_year_claim =
     yearNear(text, [
-      "entered uk",
-      "came to uk",
-      "came uk",
-      "arrived in uk",
-      "arrived uk",
-      "foreign entry",
-      "moved abroad",
-      "moved to uk",
-      "bidesh",
-      "abroad"
+      "entered uk", "came to uk", "came uk", "arrived in uk", "arrived uk",
+      "foreign entry", "moved abroad", "moved to uk", "bidesh", "abroad"
     ]) ||
     (hasAny(text, ["uk", "foreign", "abroad", "bidesh", "immigration"]) && allYears.length
       ? allYears[0]
       : null);
 
   const student_visa_entry_year_claim = yearNear(text, [
-    "student visa",
-    "entered uk on student visa",
-    "came on student visa",
-    "arrived on student visa"
+    "student visa", "entered uk on student visa", "came on student visa", "arrived on student visa"
   ]);
 
   const route_shift_year_claim = yearNear(text, [
-    "10 year route",
-    "10-year route",
-    "family route",
-    "partner route",
-    "private life route",
-    "ltr",
-    "leave to remain",
-    "route shift",
-    "switched route",
-    "switched to route",
-    "got ltr",
-    "ltr granted"
+    "10 year route", "10-year route", "family route", "partner route",
+    "private life route", "ltr", "leave to remain", "route shift",
+    "switched route", "switched to route", "got ltr", "ltr granted"
   ]);
 
   const settlement_year_claim = yearNear(text, [
-    "ilr granted",
-    "settlement granted",
-    "settled",
-    "permanent approved",
-    "citizenship granted",
-    "ilr approved"
+    "ilr granted", "settlement granted", "settled", "permanent approved",
+    "citizenship granted", "ilr approved"
   ]);
 
   const settlement_applied_year_claim = yearNear(text, [
-    "ilr applied",
-    "ilr apply",
-    "applied ilr",
-    "settlement applied",
-    "settlement apply",
-    "applied settlement"
+    "ilr applied", "ilr apply", "applied ilr", "settlement applied",
+    "settlement apply", "applied settlement"
   ]);
 
   const settlement_refusal_year_claim = yearNear(text, [
-    "ilr rejected",
-    "ilr refused",
-    "settlement rejected",
-    "settlement refused",
-    "rejected",
-    "refused",
-    "refusal",
-    "denied"
+    "ilr rejected", "ilr refused", "settlement rejected", "settlement refused",
+    "rejected", "refused", "refusal", "denied"
   ]);
 
   let appeal_year_claim = yearNear(text, [
-    "appeal ongoing",
-    "appeal filed",
-    "appealed",
-    "appeal",
-    "tribunal"
+    "appeal ongoing", "appeal filed", "appealed", "appeal", "tribunal"
   ]);
 
   if (appeal_year_claim == null && hasAny(text, ["appeal", "appealed", "tribunal"])) {
@@ -237,8 +189,20 @@ function parseFactAnchors(facts, question) {
   return {
     provided: !!rawText,
     raw_text: text,
+
     marriage_count_claim: extractMarriageCount(text),
     broken_marriage_count: extractBrokenMarriageCount(text),
+
+    marriage_year_claim: yearNear(text, [
+      "married", "marriage", "biye", "bea", "nikah", "wedding"
+    ]),
+    divorce_year_claim: yearNear(text, [
+      "divorce", "separation", "separated", "talak", "broken marriage"
+    ]),
+    broken_marriage_year_claim: yearNear(text, [
+      "broken marriage", "marriage broken", "divorce", "separation"
+    ]),
+
     foreign_entry_year_claim,
     student_visa_entry_year_claim,
     route_shift_year_claim,
@@ -246,35 +210,34 @@ function parseFactAnchors(facts, question) {
     settlement_applied_year_claim,
     settlement_refusal_year_claim,
     appeal_year_claim,
+
     job_start_year_claim: yearNear(text, [
-      "job started",
-      "started job",
-      "employment started",
-      "work started"
+      "job started", "started job", "employment started", "work started"
     ]),
     business_start_year_claim: yearNear(text, [
-      "business started",
-      "started business",
-      "company started",
-      "shop started",
-      "trade started"
+      "business started", "started business", "company started", "shop started", "trade started"
     ]),
     study_start_year_claim: yearNear(text, [
-      "study started",
-      "started study",
-      "school started",
-      "college started",
-      "university started",
-      "enrolled"
+      "study started", "started study", "school started", "college started",
+      "university started", "enrolled"
     ]),
-    property_year_claim: yearNear(text, ["property", "house", "flat", "land", "home bought"]),
+    property_year_claim: yearNear(text, [
+      "property", "house", "flat", "land", "home bought", "car bought", "vehicle bought"
+    ]),
     debt_year_claim: yearNear(text, ["debt", "loan", "liability"]),
+
     all_years: allYears
   };
 }
 
-function buildKpPastSnapshot({ core, astro, finalizedDomains, linkedDomainExpansion }) {
+function buildKpPastSnapshot({ core, astro, domains, linkedDomainExpansion }) {
   return {
+    subject_context: core?.subject_context || {},
+    birth_context: core?.birth_context || {},
+    precision_mode: core?.birth_context?.precision_mode || null,
+    identity_depth: core?.subject_context?.identity_depth || null,
+    subject_mode: core?.subject_context?.subject_mode || null,
+
     kp_cusps:
       core?.evidence_packet?.kp_cusps ||
       core?.evidence_packet?.kp ||
@@ -288,17 +251,21 @@ function buildKpPastSnapshot({ core, astro, finalizedDomains, linkedDomainExpans
       astro?.aspects_summary ||
       [],
     dasha: core?.evidence_packet?.dasha || astro?.dasha || {},
-    domain_results: finalizedDomains || [],
+    domain_results: domains || [],
     linked_domain_expansion: linkedDomainExpansion || []
   };
 }
 
-function buildKpEventInput({ input, stage2 }) {
+function buildKpEventInput({ input, stage2, core }) {
   return {
     event: input.facts || input.question,
     domain: stage2?.question_profile?.primary_domain || "GENERAL",
     question: input.question,
-    linked_domain_expansion: stage2?.linked_domain_expansion || []
+    linked_domain_expansion: stage2?.linked_domain_expansion || [],
+    precision_mode: core?.birth_context?.precision_mode || null,
+    identity_depth: core?.subject_context?.identity_depth || null,
+    subject_mode: core?.subject_context?.subject_mode || null,
+    dob: input.dob || null
   };
 }
 
@@ -312,6 +279,7 @@ function compactPayloadFromFull(full) {
     identity_depth: full.identity_depth,
     precision_mode: full.precision_mode,
     timeline_collapse: full.timeline_collapse,
+    fact_anchor_merge: full.fact_anchor_merge,
     truth_summary: full.truth_summary,
     validation_layer: full.validation_layer,
     validation_block: full.validation_block,
@@ -396,10 +364,23 @@ export default async function handler(req, res) {
     const collapsedDomains = safeArray(timelineCollapse.collapsed_domains);
     const collapsedTimeline = safeArray(timelineCollapse.collapsed_timeline);
 
+    const factAnchorMerge = runFactAnchorMerger({
+      ranked_domains: collapsedDomains.length ? collapsedDomains : finalizedDomains,
+      facts
+    });
+
+    const mergedDomains = safeArray(factAnchorMerge.merged_domains);
+
+    const pipelineDomains = mergedDomains.length
+      ? mergedDomains
+      : collapsedDomains.length
+      ? collapsedDomains
+      : finalizedDomains;
+
     const rawMasterTimeline = collapsedTimeline.length
       ? collapsedTimeline
       : buildTimeline({
-          ranked_domains: collapsedDomains.length ? collapsedDomains : finalizedDomains,
+          ranked_domains: pipelineDomains,
           birth_context: core.birth_context,
           subject_context: core.subject_context
         });
@@ -407,15 +388,15 @@ export default async function handler(req, res) {
     const kpSnapshot = buildKpPastSnapshot({
       core,
       astro,
-      finalizedDomains: collapsedDomains.length ? collapsedDomains : finalizedDomains,
+      domains: pipelineDomains,
       linkedDomainExpansion: stage2.linked_domain_expansion
     });
 
     const validation_layer = runValidationLayer({
       question: input.question,
-      finalizedDomains: collapsedDomains.length ? collapsedDomains : finalizedDomains,
+      finalizedDomains: pipelineDomains,
       snapshot: kpSnapshot,
-      eventInput: buildKpEventInput({ input, stage2 })
+      eventInput: buildKpEventInput({ input, stage2, core })
     });
 
     const rawIdentityPacket = buildIdentityPacket({
@@ -431,7 +412,7 @@ export default async function handler(req, res) {
       input,
       facts,
       question_profile: stage2.question_profile,
-      ranked_domains: collapsedDomains.length ? collapsedDomains : finalizedDomains,
+      ranked_domains: pipelineDomains,
       master_timeline: rawMasterTimeline,
       carryover: stage2.carryover,
       validation_layer,
@@ -464,6 +445,8 @@ export default async function handler(req, res) {
       exact_timeline_allowed: d?.exact_timeline_allowed === true,
       direct_evidence_count: Number(d?.direct_evidence_count || 0),
       pattern_evidence_count: Number(d?.pattern_evidence_count || 0),
+      fact_conflict_count: Number(d?.fact_conflict_count || 0),
+      fact_anchor_merge_active: !!d?.fact_anchor_merge_active,
       timeline_collapse_active: !!d?.timeline_collapse_active,
       timeline_precision_mode: d?.timeline_precision_mode || null
     }));
@@ -483,7 +466,9 @@ export default async function handler(req, res) {
         conflict: event_summary?.conflict?.conflict_status || "UNKNOWN"
       },
       final_truth_summary:
-        truth_summary?.truth_level === "NAME_PATTERN_LOCKED"
+        Number(factAnchorMerge?.fact_anchor_summary?.executed_domains || 0) > 0
+          ? "Fact anchor merged: কিছু domain EXECUTED seal পেয়েছে।"
+          : truth_summary?.truth_level === "NAME_PATTERN_LOCKED"
           ? "Name-only scan strong likely windows দেখিয়েছে; executed event claim করা হয়নি।"
           : "Evidence layer final truth summary active."
     };
@@ -525,6 +510,11 @@ export default async function handler(req, res) {
         collapsed_timeline: collapsedTimeline
       },
 
+      fact_anchor_merge: {
+        fact_anchor_merge_version: factAnchorMerge?.fact_anchor_merge_version || null,
+        fact_anchor_summary: factAnchorMerge?.fact_anchor_summary || {}
+      },
+
       validation_layer,
       validation_block,
       identity_packet,
@@ -555,6 +545,7 @@ export default async function handler(req, res) {
         identity_depth: fullPayload.identity_depth,
         precision_mode: fullPayload.precision_mode,
         timeline_collapse: fullPayload.timeline_collapse,
+        fact_anchor_merge: fullPayload.fact_anchor_merge,
         truth_summary,
         validation_layer,
         validation_block,
