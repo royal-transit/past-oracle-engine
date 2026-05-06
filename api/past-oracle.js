@@ -5,11 +5,11 @@
 // FACTS OPTIONAL — NO PERSONAL DATA HARDCODE
 // PATTERN ≠ EXECUTED
 // FACTS → ANCHOR / YEAR / STATUS
-// FIXED YEAR BINDING: 2009 ENTRY ≠ 2015 ROUTE ≠ 2025 APPLY ≠ 2026 REFUSAL/APPEAL
-// NO STALE EVENT_SUMMARY / PROJECT_BLOCK / MASTER_TIMELINE
+// PROVIDER-AWARE FULL BRIDGE
 
 import { buildChartCore } from "../lib/chart-core.js";
 import { astroProvider } from "../lib/provider-adapter.js";
+import { assertProviderContract } from "../lib/provider-contract.js";
 import { runIntelligenceLayer } from "../lib/layer-intelligence.js";
 import { runAstroLayer, buildTimeline } from "../lib/layer-astro.js";
 import { runEvidenceLayer } from "../lib/layer-evidence.js";
@@ -103,14 +103,12 @@ function lastYearInText(text) {
 
 function clauseYearByKeywords(src, keywords) {
   const clauses = splitFactClauses(src);
-
   for (const clause of clauses) {
     if (hasAny(clause, keywords)) {
       const y = firstYearInText(clause);
       if (y != null) return y;
     }
   }
-
   return null;
 }
 
@@ -123,12 +121,10 @@ function yearNear(src, keywords) {
     const idx = text.toLowerCase().indexOf(String(kw).toLowerCase());
     if (idx === -1) continue;
 
-    const after = text.slice(idx, idx + 180);
-    const afterYear = firstYearInText(after);
+    const afterYear = firstYearInText(text.slice(idx, idx + 180));
     if (afterYear != null) return afterYear;
 
-    const before = text.slice(Math.max(0, idx - 120), idx);
-    const beforeYear = lastYearInText(before);
+    const beforeYear = lastYearInText(text.slice(Math.max(0, idx - 120), idx));
     if (beforeYear != null) return beforeYear;
   }
 
@@ -158,21 +154,9 @@ function ageFromYear(eventYear, dob) {
 
 function parseFlexibleCountToken(token) {
   const map = {
-    one: 1,
-    two: 2,
-    three: 3,
-    four: 4,
-    five: 5,
-    ek: 1,
-    ekta: 1,
-    dui: 2,
-    duita: 2,
-    tin: 3,
-    tinta: 3,
-    char: 4,
-    charta: 4,
-    pach: 5,
-    pachta: 5
+    one: 1, two: 2, three: 3, four: 4, five: 5,
+    ek: 1, ekta: 1, dui: 2, duita: 2, tin: 3, tinta: 3,
+    char: 4, charta: 4, pach: 5, pachta: 5
   };
 
   if (!token) return null;
@@ -205,10 +189,6 @@ function extractBrokenMarriageCount(text) {
   ]);
 }
 
-/* =========================
-   FACT PARSER — FIXED
-========================= */
-
 function parseFactAnchors(facts, question) {
   const rawText = `${facts || ""} ${question || ""}`.trim();
   const text = rawText.toLowerCase();
@@ -216,76 +196,38 @@ function parseFactAnchors(facts, question) {
 
   const foreign_entry_year_claim =
     yearNear(text, [
-      "entered uk",
-      "came to uk",
-      "came uk",
-      "arrived in uk",
-      "arrived uk",
-      "foreign entry",
-      "moved abroad",
-      "moved to uk",
-      "bidesh",
-      "abroad"
+      "entered uk", "came to uk", "came uk", "arrived in uk", "arrived uk",
+      "foreign entry", "moved abroad", "moved to uk", "bidesh", "abroad"
     ]) ||
     (hasAny(text, ["uk", "foreign", "abroad", "bidesh", "immigration"]) && allYears.length ? allYears[0] : null);
 
   const student_visa_entry_year_claim = yearNear(text, [
-    "student visa",
-    "entered uk on student visa",
-    "came on student visa",
-    "arrived on student visa"
+    "student visa", "entered uk on student visa", "came on student visa", "arrived on student visa"
   ]);
 
   const route_shift_year_claim = yearNear(text, [
-    "10 year route",
-    "10-year route",
-    "family route",
-    "partner route",
-    "private life route",
-    "ltr",
-    "leave to remain",
-    "route shift",
-    "switched route",
-    "switched to route",
-    "got ltr",
-    "ltr granted"
+    "10 year route", "10-year route", "family route", "partner route",
+    "private life route", "ltr", "leave to remain", "route shift",
+    "switched route", "switched to route", "got ltr", "ltr granted"
   ]);
 
   const settlement_year_claim = yearNear(text, [
-    "ilr granted",
-    "settlement granted",
-    "settled",
-    "permanent approved",
-    "citizenship granted",
-    "ilr approved"
+    "ilr granted", "settlement granted", "settled", "permanent approved",
+    "citizenship granted", "ilr approved"
   ]);
 
   const settlement_applied_year_claim = yearNear(text, [
-    "ilr applied",
-    "ilr apply",
-    "applied ilr",
-    "settlement applied",
-    "settlement apply",
-    "applied settlement"
+    "ilr applied", "ilr apply", "applied ilr", "settlement applied",
+    "settlement apply", "applied settlement"
   ]);
 
   const settlement_refusal_year_claim = yearNear(text, [
-    "ilr rejected",
-    "ilr refused",
-    "settlement rejected",
-    "settlement refused",
-    "rejected",
-    "refused",
-    "refusal",
-    "denied"
+    "ilr rejected", "ilr refused", "settlement rejected", "settlement refused",
+    "rejected", "refused", "refusal", "denied"
   ]);
 
   let appeal_year_claim = yearNear(text, [
-    "appeal ongoing",
-    "appeal filed",
-    "appealed",
-    "appeal",
-    "tribunal"
+    "appeal ongoing", "appeal filed", "appealed", "appeal", "tribunal"
   ]);
 
   if (appeal_year_claim == null && hasAny(text, ["appeal", "appealed", "tribunal"])) {
@@ -315,10 +257,6 @@ function parseFactAnchors(facts, question) {
     all_years: allYears
   };
 }
-
-/* =========================
-   DOMAIN HELPERS
-========================= */
 
 function isForeignFamily(k) {
   return ["FOREIGN", "IMMIGRATION", "VISA"].includes(up(k));
@@ -964,6 +902,7 @@ function buildKpEventInput({ input, stage2 }) {
 
 export default async function handler(req, res) {
   try {
+    const provider_state = assertProviderContract();
     const q = req.query || {};
 
     const input = {
@@ -987,6 +926,7 @@ export default async function handler(req, res) {
     if (!input.name && !input.dob && !input.facts) {
       return res.status(400).json({
         engine_status: ENGINE_STATUS,
+        provider_state,
         system_status: "INPUT_ERROR",
         message: "Provide at least a name, DOB, or facts."
       });
@@ -997,6 +937,7 @@ export default async function handler(req, res) {
     if (core?.system_status !== "OK") {
       return res.status(400).json({
         engine_status: ENGINE_STATUS,
+        provider_state,
         system_status: "INPUT_ERROR",
         details: core
       });
@@ -1106,6 +1047,7 @@ export default async function handler(req, res) {
 
     const compactPayload = {
       engine_status: ENGINE_STATUS,
+      provider_state,
       output_format: input.format === "json" ? "json" : input.format,
       subject_mode: core?.subject_context?.subject_mode || null,
       identity_depth: core?.subject_context?.identity_depth || null,
@@ -1127,6 +1069,7 @@ export default async function handler(req, res) {
     if (input.format === "project") {
       return res.status(200).json({
         engine_status: ENGINE_STATUS,
+        provider_state,
         output_format: "project",
         subject_mode: core?.subject_context?.subject_mode || null,
         identity_depth: core?.subject_context?.identity_depth || null,
@@ -1141,6 +1084,7 @@ export default async function handler(req, res) {
 
     return res.status(200).json({
       engine_status: ENGINE_STATUS,
+      provider_state,
       system_status: "OK",
       mode: core?.subject_context?.question_mode || "PAST",
       subject_mode: core?.subject_context?.subject_mode || null,
