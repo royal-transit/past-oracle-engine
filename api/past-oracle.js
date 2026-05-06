@@ -1,7 +1,9 @@
 // api/past-oracle.js
-// FULL REPLACEMENT — UNIVERSAL_PAST_NANO_SCANNER_V8
-// MAIN ORCHESTRATOR FIX
-// EvidenceLayer is FINAL SOURCE for ranked_domains / summaries / timeline / project block
+// FULL REPLACEMENT — UNIVERSAL_PAST_NANO_SCANNER_V8.1
+// MAIN ORCHESTRATOR HARD-LOCK
+// Final source order:
+// ChartCore -> AstroLayer -> IntelligenceLayer -> EventFinalizer -> ValidationLayer -> IdentityPacket -> EvidenceLayer
+// EvidenceLayer is FINAL SOURCE for ranked_domains / event_summary / truth_summary / timeline / project block
 
 import { buildChartCore } from "../lib/chart-core.js";
 import { astroProvider } from "../lib/provider-adapter.js";
@@ -13,7 +15,7 @@ import { runValidationLayer } from "../lib/layer-validation.js";
 import { buildIdentityPacket } from "../lib/identity-packet.js";
 import { correctIdentityPacket } from "../lib/domain-corrector.js";
 
-const ENGINE_STATUS = "UNIVERSAL_PAST_NANO_SCANNER_V8";
+const ENGINE_STATUS = "UNIVERSAL_PAST_NANO_SCANNER_V8.1";
 
 function str(v) {
   return v == null ? "" : String(v).trim();
@@ -50,6 +52,8 @@ function splitFactClauses(text) {
     .replace(/\band then\b/gi, ",")
     .replace(/\bthen\b/gi, ",")
     .replace(/\bafter that\b/gi, ",")
+    .replace(/\bpor e\b/gi, ",")
+    .replace(/\btarpor\b/gi, ",")
     .split(/[,\n;|]+/)
     .map((x) => x.trim())
     .filter(Boolean);
@@ -85,21 +89,35 @@ function yearNear(src, keywords) {
     const idx = text.toLowerCase().indexOf(String(kw).toLowerCase());
     if (idx === -1) continue;
 
-    const afterYear = firstYearInText(text.slice(idx, idx + 180));
+    const afterYear = firstYearInText(text.slice(idx, idx + 220));
     if (afterYear != null) return afterYear;
 
-    const beforeYear = lastYearInText(text.slice(Math.max(0, idx - 120), idx));
+    const beforeYear = lastYearInText(text.slice(Math.max(0, idx - 160), idx));
     if (beforeYear != null) return beforeYear;
   }
+
   return null;
 }
 
 function parseFlexibleCountToken(token) {
   const map = {
-    one: 1, two: 2, three: 3, four: 4, five: 5,
-    ek: 1, ekta: 1, dui: 2, duita: 2,
-    tin: 3, tinta: 3, char: 4, charta: 4,
-    pach: 5, pachta: 5
+    one: 1,
+    two: 2,
+    three: 3,
+    four: 4,
+    five: 5,
+    ek: 1,
+    ekta: 1,
+    ak: 1,
+    akta: 1,
+    dui: 2,
+    duita: 2,
+    tin: 3,
+    tinta: 3,
+    char: 4,
+    charta: 4,
+    pach: 5,
+    pachta: 5
   };
 
   if (!token) return null;
@@ -117,18 +135,18 @@ function extractCount(text, patterns) {
 
 function extractMarriageCount(text) {
   return extractCount(text, [
-    /\b(\d+|one|two|three|four|five|ek|ekta|dui|duita|tin|tinta|char|charta|pach|pachta)\s+marriages?\b/i,
-    /\b(\d+|one|two|three|four|five|ek|ekta|dui|duita|tin|tinta|char|charta|pach|pachta)\s+biye\b/i,
-    /\b(\d+|one|two|three|four|five|ek|ekta|dui|duita|tin|tinta|char|charta|pach|pachta)\s+bea\b/i
+    /\b(\d+|one|two|three|four|five|ek|ekta|ak|akta|dui|duita|tin|tinta|char|charta|pach|pachta)\s+marriages?\b/i,
+    /\b(\d+|one|two|three|four|five|ek|ekta|ak|akta|dui|duita|tin|tinta|char|charta|pach|pachta)\s+biye\b/i,
+    /\b(\d+|one|two|three|four|five|ek|ekta|ak|akta|dui|duita|tin|tinta|char|charta|pach|pachta)\s+bea\b/i
   ]);
 }
 
 function extractBrokenMarriageCount(text) {
   return extractCount(text, [
-    /\b(\d+|one|two|three|four|five|ek|ekta|dui|duita|tin|tinta|char|charta|pach|pachta)\s+divorce\b/i,
-    /\b(\d+|one|two|three|four|five|ek|ekta|dui|duita|tin|tinta|char|charta|pach|pachta)\s+broken\b/i,
-    /\b(\d+|one|two|three|four|five|ek|ekta|dui|duita|tin|tinta|char|charta|pach|pachta)\s+separation\b/i,
-    /\b(\d+|one|two|three|four|five|ek|ekta|dui|duita|tin|tinta|char|charta|pach|pachta)\s+talak\b/i
+    /\b(\d+|one|two|three|four|five|ek|ekta|ak|akta|dui|duita|tin|tinta|char|charta|pach|pachta)\s+divorce\b/i,
+    /\b(\d+|one|two|three|four|five|ek|ekta|ak|akta|dui|duita|tin|tinta|char|charta|pach|pachta)\s+broken\b/i,
+    /\b(\d+|one|two|three|four|five|ek|ekta|ak|akta|dui|duita|tin|tinta|char|charta|pach|pachta)\s+separation\b/i,
+    /\b(\d+|one|two|three|four|five|ek|ekta|ak|akta|dui|duita|tin|tinta|char|charta|pach|pachta)\s+talak\b/i
   ]);
 }
 
@@ -139,38 +157,78 @@ function parseFactAnchors(facts, question) {
 
   const foreign_entry_year_claim =
     yearNear(text, [
-      "entered uk", "came to uk", "came uk", "arrived in uk", "arrived uk",
-      "foreign entry", "moved abroad", "moved to uk", "bidesh", "abroad"
+      "entered uk",
+      "came to uk",
+      "came uk",
+      "arrived in uk",
+      "arrived uk",
+      "foreign entry",
+      "moved abroad",
+      "moved to uk",
+      "bidesh",
+      "abroad"
     ]) ||
-    (hasAny(text, ["uk", "foreign", "abroad", "bidesh", "immigration"]) && allYears.length ? allYears[0] : null);
+    (hasAny(text, ["uk", "foreign", "abroad", "bidesh", "immigration"]) && allYears.length
+      ? allYears[0]
+      : null);
 
   const student_visa_entry_year_claim = yearNear(text, [
-    "student visa", "entered uk on student visa", "came on student visa", "arrived on student visa"
+    "student visa",
+    "entered uk on student visa",
+    "came on student visa",
+    "arrived on student visa"
   ]);
 
   const route_shift_year_claim = yearNear(text, [
-    "10 year route", "10-year route", "family route", "partner route",
-    "private life route", "ltr", "leave to remain", "route shift",
-    "switched route", "switched to route", "got ltr", "ltr granted"
+    "10 year route",
+    "10-year route",
+    "family route",
+    "partner route",
+    "private life route",
+    "ltr",
+    "leave to remain",
+    "route shift",
+    "switched route",
+    "switched to route",
+    "got ltr",
+    "ltr granted"
   ]);
 
   const settlement_year_claim = yearNear(text, [
-    "ilr granted", "settlement granted", "settled", "permanent approved",
-    "citizenship granted", "ilr approved"
+    "ilr granted",
+    "settlement granted",
+    "settled",
+    "permanent approved",
+    "citizenship granted",
+    "ilr approved"
   ]);
 
   const settlement_applied_year_claim = yearNear(text, [
-    "ilr applied", "ilr apply", "applied ilr", "settlement applied",
-    "settlement apply", "applied settlement"
+    "ilr applied",
+    "ilr apply",
+    "applied ilr",
+    "settlement applied",
+    "settlement apply",
+    "applied settlement"
   ]);
 
   const settlement_refusal_year_claim = yearNear(text, [
-    "ilr rejected", "ilr refused", "settlement rejected", "settlement refused",
-    "rejected", "refused", "refusal", "denied"
+    "ilr rejected",
+    "ilr refused",
+    "settlement rejected",
+    "settlement refused",
+    "rejected",
+    "refused",
+    "refusal",
+    "denied"
   ]);
 
   let appeal_year_claim = yearNear(text, [
-    "appeal ongoing", "appeal filed", "appealed", "appeal", "tribunal"
+    "appeal ongoing",
+    "appeal filed",
+    "appealed",
+    "appeal",
+    "tribunal"
   ]);
 
   if (appeal_year_claim == null && hasAny(text, ["appeal", "appealed", "tribunal"])) {
@@ -183,8 +241,10 @@ function parseFactAnchors(facts, question) {
   return {
     provided: !!rawText,
     raw_text: text,
+
     marriage_count_claim: extractMarriageCount(text),
     broken_marriage_count: extractBrokenMarriageCount(text),
+
     foreign_entry_year_claim,
     student_visa_entry_year_claim,
     route_shift_year_claim,
@@ -192,9 +252,31 @@ function parseFactAnchors(facts, question) {
     settlement_applied_year_claim,
     settlement_refusal_year_claim,
     appeal_year_claim,
-    job_start_year_claim: yearNear(text, ["job started", "started job", "employment started", "work started"]),
-    business_start_year_claim: yearNear(text, ["business started", "started business", "company started", "shop started", "trade started"]),
-    study_start_year_claim: yearNear(text, ["study started", "started study", "school started", "college started", "university started", "enrolled"]),
+
+    job_start_year_claim: yearNear(text, [
+      "job started",
+      "started job",
+      "employment started",
+      "work started"
+    ]),
+
+    business_start_year_claim: yearNear(text, [
+      "business started",
+      "started business",
+      "company started",
+      "shop started",
+      "trade started"
+    ]),
+
+    study_start_year_claim: yearNear(text, [
+      "study started",
+      "started study",
+      "school started",
+      "college started",
+      "university started",
+      "enrolled"
+    ]),
+
     property_year_claim: yearNear(text, ["property", "house", "flat", "land", "home bought"]),
     debt_year_claim: yearNear(text, ["debt", "loan", "liability"]),
     all_years: allYears
@@ -203,14 +285,24 @@ function parseFactAnchors(facts, question) {
 
 function buildKpPastSnapshot({ core, astro, finalizedDomains, linkedDomainExpansion }) {
   return {
-    kp_cusps: core?.evidence_packet?.kp_cusps || core?.evidence_packet?.kp || astro?.kp_cusps || {},
-    moon: core?.evidence_packet?.moon || astro?.moon || {},
+    kp_cusps:
+      core?.evidence_packet?.kp?.kp_cusps ||
+      core?.evidence_packet?.kp?.cusps ||
+      core?.evidence_packet?.kp_cusps ||
+      astro?.kp_cusps ||
+      {},
+
+    moon:
+      core?.evidence_packet?.natal?.planets?.find?.((p) => String(p.planet).toUpperCase() === "MOON") ||
+      core?.evidence_packet?.transit_now?.planets?.find?.((p) => String(p.planet).toUpperCase() === "MOON") ||
+      {},
+
     aspects:
-      core?.evidence_packet?.aspects ||
-      core?.evidence_packet?.aspects_summary ||
+      core?.evidence_packet?.natal?.aspects ||
+      core?.evidence_packet?.transit_now?.aspects ||
       astro?.aspects ||
-      astro?.aspects_summary ||
       [],
+
     dasha: core?.evidence_packet?.dasha || astro?.dasha || {},
     domain_results: finalizedDomains || [],
     linked_domain_expansion: linkedDomainExpansion || []
@@ -409,6 +501,7 @@ export default async function handler(req, res) {
           facts_are_validation_not_source_of_truth: true
         }
       },
+
       system_status: "OK",
       mode: core?.subject_context?.question_mode || "PAST",
       subject_mode: core?.subject_context?.subject_mode || null,
