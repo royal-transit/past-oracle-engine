@@ -1,8 +1,8 @@
 // api/past-oracle.js
-// FULL REPLACEMENT — UNIVERSAL_PAST_NANO_SCANNER_V8.2
+// FULL REPLACEMENT — UNIVERSAL_PAST_NANO_SCANNER_V8.3
 // MAIN ORCHESTRATOR FIX
-// EvidenceLayer is FINAL SOURCE
-// ValidationLayer receives FULL mode context
+// TimelineCollapser is now active after EventFinalizer
+// EvidenceLayer receives collapsed domains
 
 import { buildChartCore } from "../lib/chart-core.js";
 import { astroProvider } from "../lib/provider-adapter.js";
@@ -11,10 +11,11 @@ import { runAstroLayer, buildTimeline } from "../lib/layer-astro.js";
 import { runEvidenceLayer } from "../lib/layer-evidence.js";
 import { runEventFinalizer } from "../lib/event-finalizer.js";
 import { runValidationLayer } from "../lib/layer-validation.js";
+import { runTimelineCollapser } from "../lib/timeline-collapser.js";
 import { buildIdentityPacket } from "../lib/identity-packet.js";
 import { correctIdentityPacket } from "../lib/domain-corrector.js";
 
-const ENGINE_STATUS = "UNIVERSAL_PAST_NANO_SCANNER_V8.2";
+const ENGINE_STATUS = "UNIVERSAL_PAST_NANO_SCANNER_V8.3";
 
 function str(v) {
   return v == null ? "" : String(v).trim();
@@ -46,16 +47,6 @@ function hasAny(text, arr) {
   return arr.some((x) => src.includes(String(x).toLowerCase()));
 }
 
-function firstYearInText(text) {
-  const m = String(text || "").match(/\b(19|20)\d{2}\b/);
-  return m ? Number(m[0]) : null;
-}
-
-function lastYearInText(text) {
-  const yrs = extractAllYears(text);
-  return yrs.length ? yrs[yrs.length - 1] : null;
-}
-
 function splitFactClauses(text) {
   return String(text || "")
     .replace(/\band then\b/gi, ",")
@@ -64,6 +55,16 @@ function splitFactClauses(text) {
     .split(/[,\n;|]+/)
     .map((x) => x.trim())
     .filter(Boolean);
+}
+
+function firstYearInText(text) {
+  const m = String(text || "").match(/\b(19|20)\d{2}\b/);
+  return m ? Number(m[0]) : null;
+}
+
+function lastYearInText(text) {
+  const yrs = extractAllYears(text);
+  return yrs.length ? yrs[yrs.length - 1] : null;
 }
 
 function clauseYearByKeywords(src, keywords) {
@@ -98,10 +99,21 @@ function yearNear(src, keywords) {
 
 function parseFlexibleCountToken(token) {
   const map = {
-    one: 1, two: 2, three: 3, four: 4, five: 5,
-    ek: 1, ekta: 1, dui: 2, duita: 2,
-    tin: 3, tinta: 3, char: 4, charta: 4,
-    pach: 5, pachta: 5
+    one: 1,
+    two: 2,
+    three: 3,
+    four: 4,
+    five: 5,
+    ek: 1,
+    ekta: 1,
+    dui: 2,
+    duita: 2,
+    tin: 3,
+    tinta: 3,
+    char: 4,
+    charta: 4,
+    pach: 5,
+    pachta: 5
   };
 
   if (!token) return null;
@@ -141,38 +153,78 @@ function parseFactAnchors(facts, question) {
 
   const foreign_entry_year_claim =
     yearNear(text, [
-      "entered uk", "came to uk", "came uk", "arrived in uk", "arrived uk",
-      "foreign entry", "moved abroad", "moved to uk", "bidesh", "abroad"
+      "entered uk",
+      "came to uk",
+      "came uk",
+      "arrived in uk",
+      "arrived uk",
+      "foreign entry",
+      "moved abroad",
+      "moved to uk",
+      "bidesh",
+      "abroad"
     ]) ||
-    (hasAny(text, ["uk", "foreign", "abroad", "bidesh", "immigration"]) && allYears.length ? allYears[0] : null);
+    (hasAny(text, ["uk", "foreign", "abroad", "bidesh", "immigration"]) && allYears.length
+      ? allYears[0]
+      : null);
 
   const student_visa_entry_year_claim = yearNear(text, [
-    "student visa", "entered uk on student visa", "came on student visa", "arrived on student visa"
+    "student visa",
+    "entered uk on student visa",
+    "came on student visa",
+    "arrived on student visa"
   ]);
 
   const route_shift_year_claim = yearNear(text, [
-    "10 year route", "10-year route", "family route", "partner route",
-    "private life route", "ltr", "leave to remain", "route shift",
-    "switched route", "switched to route", "got ltr", "ltr granted"
+    "10 year route",
+    "10-year route",
+    "family route",
+    "partner route",
+    "private life route",
+    "ltr",
+    "leave to remain",
+    "route shift",
+    "switched route",
+    "switched to route",
+    "got ltr",
+    "ltr granted"
   ]);
 
   const settlement_year_claim = yearNear(text, [
-    "ilr granted", "settlement granted", "settled", "permanent approved",
-    "citizenship granted", "ilr approved"
+    "ilr granted",
+    "settlement granted",
+    "settled",
+    "permanent approved",
+    "citizenship granted",
+    "ilr approved"
   ]);
 
   const settlement_applied_year_claim = yearNear(text, [
-    "ilr applied", "ilr apply", "applied ilr", "settlement applied",
-    "settlement apply", "applied settlement"
+    "ilr applied",
+    "ilr apply",
+    "applied ilr",
+    "settlement applied",
+    "settlement apply",
+    "applied settlement"
   ]);
 
   const settlement_refusal_year_claim = yearNear(text, [
-    "ilr rejected", "ilr refused", "settlement rejected", "settlement refused",
-    "rejected", "refused", "refusal", "denied"
+    "ilr rejected",
+    "ilr refused",
+    "settlement rejected",
+    "settlement refused",
+    "rejected",
+    "refused",
+    "refusal",
+    "denied"
   ]);
 
   let appeal_year_claim = yearNear(text, [
-    "appeal ongoing", "appeal filed", "appealed", "appeal", "tribunal"
+    "appeal ongoing",
+    "appeal filed",
+    "appealed",
+    "appeal",
+    "tribunal"
   ]);
 
   if (appeal_year_claim == null && hasAny(text, ["appeal", "appealed", "tribunal"])) {
@@ -194,9 +246,27 @@ function parseFactAnchors(facts, question) {
     settlement_applied_year_claim,
     settlement_refusal_year_claim,
     appeal_year_claim,
-    job_start_year_claim: yearNear(text, ["job started", "started job", "employment started", "work started"]),
-    business_start_year_claim: yearNear(text, ["business started", "started business", "company started", "shop started", "trade started"]),
-    study_start_year_claim: yearNear(text, ["study started", "started study", "school started", "college started", "university started", "enrolled"]),
+    job_start_year_claim: yearNear(text, [
+      "job started",
+      "started job",
+      "employment started",
+      "work started"
+    ]),
+    business_start_year_claim: yearNear(text, [
+      "business started",
+      "started business",
+      "company started",
+      "shop started",
+      "trade started"
+    ]),
+    study_start_year_claim: yearNear(text, [
+      "study started",
+      "started study",
+      "school started",
+      "college started",
+      "university started",
+      "enrolled"
+    ]),
     property_year_claim: yearNear(text, ["property", "house", "flat", "land", "home bought"]),
     debt_year_claim: yearNear(text, ["debt", "loan", "liability"]),
     all_years: allYears
@@ -205,7 +275,11 @@ function parseFactAnchors(facts, question) {
 
 function buildKpPastSnapshot({ core, astro, finalizedDomains, linkedDomainExpansion }) {
   return {
-    kp_cusps: core?.evidence_packet?.kp_cusps || core?.evidence_packet?.kp || astro?.kp_cusps || {},
+    kp_cusps:
+      core?.evidence_packet?.kp_cusps ||
+      core?.evidence_packet?.kp ||
+      astro?.kp_cusps ||
+      {},
     moon: core?.evidence_packet?.moon || astro?.moon || {},
     aspects:
       core?.evidence_packet?.aspects ||
@@ -215,35 +289,16 @@ function buildKpPastSnapshot({ core, astro, finalizedDomains, linkedDomainExpans
       [],
     dasha: core?.evidence_packet?.dasha || astro?.dasha || {},
     domain_results: finalizedDomains || [],
-    linked_domain_expansion: linkedDomainExpansion || [],
-
-    subject_context: core?.subject_context || {},
-    birth_context: core?.birth_context || {},
-    precision_mode: core?.birth_context?.precision_mode || null,
-    identity_depth: core?.subject_context?.identity_depth || null,
-    subject_mode: core?.subject_context?.subject_mode || null,
-    is_full_birth_locked: core?.subject_context?.is_full_birth_locked === true,
-    is_name_only_mode: core?.subject_context?.is_name_only_mode === true,
-    is_name_context_mode: core?.subject_context?.is_name_context_mode === true
+    linked_domain_expansion: linkedDomainExpansion || []
   };
 }
 
-function buildKpEventInput({ input, stage2, core }) {
+function buildKpEventInput({ input, stage2 }) {
   return {
     event: input.facts || input.question,
     domain: stage2?.question_profile?.primary_domain || "GENERAL",
     question: input.question,
-    linked_domain_expansion: stage2?.linked_domain_expansion || [],
-    name: input.name,
-    dob: input.dob,
-    tob: input.tob,
-    pob: input.pob,
-    precision_mode: core?.birth_context?.precision_mode || null,
-    identity_depth: core?.subject_context?.identity_depth || null,
-    subject_mode: core?.subject_context?.subject_mode || null,
-    is_full_birth_locked: core?.subject_context?.is_full_birth_locked === true,
-    is_name_only_mode: core?.subject_context?.is_name_only_mode === true,
-    is_name_context_mode: core?.subject_context?.is_name_context_mode === true
+    linked_domain_expansion: stage2?.linked_domain_expansion || []
   };
 }
 
@@ -256,6 +311,7 @@ function compactPayloadFromFull(full) {
     subject_mode: full.subject_mode,
     identity_depth: full.identity_depth,
     precision_mode: full.precision_mode,
+    timeline_collapse: full.timeline_collapse,
     truth_summary: full.truth_summary,
     validation_layer: full.validation_layer,
     validation_block: full.validation_block,
@@ -330,27 +386,36 @@ export default async function handler(req, res) {
 
     const finalizedDomains = runEventFinalizer(stage2.ranked_domains);
 
-    const rawMasterTimeline = buildTimeline({
+    const timelineCollapse = runTimelineCollapser({
       ranked_domains: finalizedDomains,
       birth_context: core.birth_context,
-      subject_context: core.subject_context
+      subject_context: core.subject_context,
+      evidence_packet: core.evidence_packet
     });
+
+    const collapsedDomains = safeArray(timelineCollapse.collapsed_domains);
+    const collapsedTimeline = safeArray(timelineCollapse.collapsed_timeline);
+
+    const rawMasterTimeline = collapsedTimeline.length
+      ? collapsedTimeline
+      : buildTimeline({
+          ranked_domains: collapsedDomains.length ? collapsedDomains : finalizedDomains,
+          birth_context: core.birth_context,
+          subject_context: core.subject_context
+        });
 
     const kpSnapshot = buildKpPastSnapshot({
       core,
       astro,
-      finalizedDomains,
+      finalizedDomains: collapsedDomains.length ? collapsedDomains : finalizedDomains,
       linkedDomainExpansion: stage2.linked_domain_expansion
     });
 
     const validation_layer = runValidationLayer({
       question: input.question,
-      finalizedDomains,
+      finalizedDomains: collapsedDomains.length ? collapsedDomains : finalizedDomains,
       snapshot: kpSnapshot,
-      eventInput: buildKpEventInput({ input, stage2, core }),
-      subject_context: core.subject_context,
-      birth_context: core.birth_context,
-      facts
+      eventInput: buildKpEventInput({ input, stage2 })
     });
 
     const rawIdentityPacket = buildIdentityPacket({
@@ -366,7 +431,7 @@ export default async function handler(req, res) {
       input,
       facts,
       question_profile: stage2.question_profile,
-      ranked_domains: finalizedDomains,
+      ranked_domains: collapsedDomains.length ? collapsedDomains : finalizedDomains,
       master_timeline: rawMasterTimeline,
       carryover: stage2.carryover,
       validation_layer,
@@ -398,7 +463,9 @@ export default async function handler(req, res) {
       pattern_mode_active: !!d?.pattern_mode_active,
       exact_timeline_allowed: d?.exact_timeline_allowed === true,
       direct_evidence_count: Number(d?.direct_evidence_count || 0),
-      pattern_evidence_count: Number(d?.pattern_evidence_count || 0)
+      pattern_evidence_count: Number(d?.pattern_evidence_count || 0),
+      timeline_collapse_active: !!d?.timeline_collapse_active,
+      timeline_precision_mode: d?.timeline_precision_mode || null
     }));
 
     const delivery_safe_packet = {
@@ -433,7 +500,6 @@ export default async function handler(req, res) {
           facts_are_validation_not_source_of_truth: true
         }
       },
-
       system_status: "OK",
       mode: core?.subject_context?.question_mode || "PAST",
       subject_mode: core?.subject_context?.subject_mode || null,
@@ -452,6 +518,12 @@ export default async function handler(req, res) {
       evidence_normalized: astro?.evidence_normalized || {},
       mode_flags: astro?.mode_flags || {},
       name_hints: astro?.name_hints || {},
+
+      timeline_collapse: {
+        timeline_collapse_version: timelineCollapse?.timeline_collapse_version || null,
+        mode_flags: timelineCollapse?.mode_flags || {},
+        collapsed_timeline: collapsedTimeline
+      },
 
       validation_layer,
       validation_block,
@@ -482,6 +554,7 @@ export default async function handler(req, res) {
         subject_mode: fullPayload.subject_mode,
         identity_depth: fullPayload.identity_depth,
         precision_mode: fullPayload.precision_mode,
+        timeline_collapse: fullPayload.timeline_collapse,
         truth_summary,
         validation_layer,
         validation_block,
@@ -497,7 +570,11 @@ export default async function handler(req, res) {
     return res.status(500).json({
       engine_status: ENGINE_STATUS,
       system_status: "ERROR",
-      error_message: error instanceof Error ? error.message : "Unknown error"
+      error_message: error instanceof Error ? error.message : "Unknown error",
+      error_stack:
+        process.env.NODE_ENV === "development" && error instanceof Error
+          ? error.stack
+          : undefined
     });
   }
 }
