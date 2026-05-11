@@ -1,11 +1,7 @@
 // api/past-oracle.js
-// FULL REPLACEMENT — UNIVERSAL_PAST_NANO_SCANNER_V8.5
-// Fix:
-// - Strong fact parser: no cross-domain year contamination
-// - entered uk 2009 => foreign_entry_year_claim = 2009
-// - love 2014 => love_year_claim = 2014
-// - study started 2007 => study_start_year_claim = 2007
-// - Pipeline includes TimelineCollapser + FactAnchorMerger
+// FULL REPLACEMENT — UNIVERSAL_PAST_NANO_SCANNER_V8.6_GPT_SAFE
+// Keeps original engine logic intact.
+// Fixes GPT Action ResponseTooLargeError by making compact/project truly small.
 
 import { buildChartCore } from "../lib/chart-core.js";
 import { astroProvider } from "../lib/provider-adapter.js";
@@ -19,7 +15,7 @@ import { runFactAnchorMerger } from "../lib/fact-anchor-merger.js";
 import { buildIdentityPacket } from "../lib/identity-packet.js";
 import { correctIdentityPacket } from "../lib/domain-corrector.js";
 
-const ENGINE_STATUS = "UNIVERSAL_PAST_NANO_SCANNER_V8.5";
+const ENGINE_STATUS = "UNIVERSAL_PAST_NANO_SCANNER_V8.6_GPT_SAFE";
 
 function str(v) {
   return v == null ? "" : String(v).trim();
@@ -33,13 +29,22 @@ function toNum(v) {
 
 function normalizeFormat(v) {
   const x = str(v).toLowerCase();
-  if (x === "compact") return "compact";
+  if (x === "json") return "json";
   if (x === "project") return "project";
-  return "json";
+  if (x === "compact") return "compact";
+  return "compact";
 }
 
 function safeArray(v) {
   return Array.isArray(v) ? v : [];
+}
+
+function smallObj(obj, keys = []) {
+  const out = {};
+  for (const k of keys) {
+    if (obj && Object.prototype.hasOwnProperty.call(obj, k)) out[k] = obj[k];
+  }
+  return out;
 }
 
 function extractAllYears(text) {
@@ -56,7 +61,10 @@ function splitFactClauses(text) {
     .replace(/\band then\b/gi, ",")
     .replace(/\bthen\b/gi, ",")
     .replace(/\bafter that\b/gi, ",")
-    .replace(/\s+(?=(love|romance|relationship|entered uk|came to uk|arrived in uk|study started|started study|student visa|visa|marriage|married|divorce|separation|settlement|ilr|appeal|job started|business started|property|debt|mental|health)\b)/gi, ",")
+    .replace(
+      /\s+(?=(love|romance|relationship|entered uk|came to uk|arrived in uk|study started|started study|student visa|visa|marriage|married|divorce|separation|settlement|ilr|appeal|job started|business started|property|debt|mental|health)\b)/gi,
+      ","
+    )
     .split(/[,\n;|]+/)
     .map((x) => x.trim())
     .filter(Boolean);
@@ -133,8 +141,6 @@ function parseFactAnchors(facts, question) {
   const text = rawText.toLowerCase();
   const allYears = extractAllYears(text);
 
-  const appealYear = yearNear(text, ["appeal ongoing", "appeal filed", "appealed", "appeal", "tribunal"]);
-
   return {
     provided: !!rawText,
     raw_text: text,
@@ -180,7 +186,7 @@ function parseFactAnchors(facts, question) {
       "rejected", "refused", "refusal", "denied"
     ]),
 
-    appeal_year_claim: appealYear,
+    appeal_year_claim: yearNear(text, ["appeal ongoing", "appeal filed", "appealed", "appeal", "tribunal"]),
 
     job_start_year_claim: yearNear(text, ["job started", "started job", "employment started", "work started"]),
     business_start_year_claim: yearNear(text, ["business started", "started business", "company started", "shop started", "trade started"]),
@@ -201,7 +207,6 @@ function buildKpPastSnapshot({ core, astro, domains, linkedDomainExpansion }) {
     precision_mode: core?.birth_context?.precision_mode || null,
     identity_depth: core?.subject_context?.identity_depth || null,
     subject_mode: core?.subject_context?.subject_mode || null,
-
     kp_cusps:
       core?.evidence_packet?.kp_cusps ||
       core?.evidence_packet?.kp ||
@@ -233,32 +238,106 @@ function buildKpEventInput({ input, stage2, core }) {
   };
 }
 
-function compactPayloadFromFull(full) {
+function pickTopTimeline(items, limit = 3) {
+  return safeArray(items).slice(0, limit).map((e) => ({
+    title: e?.title || e?.event_title || e?.domain_label || e?.domain_key || "Past event",
+    domain: e?.domain_key || e?.domain || e?.domain_label || null,
+    status: e?.status || e?.final_state || e?.event_state || "UNKNOWN",
+    timing: e?.timing || e?.year_range || e?.year || e?.phase || null,
+    age_range: e?.age_range || e?.age || null,
+    evidence_level: e?.evidence_level || e?.confidence || e?.validation_status || null,
+    emotional_truth: e?.emotional_truth || e?.recognition_line || e?.client_recognition || null,
+    outcome: e?.outcome || e?.final_verdict || e?.final_state || null
+  }));
+}
+
+function buildDomainOutcomes(summary = {}) {
+  return {
+    relationship: summary?.relationship || {},
+    work: summary?.work || {},
+    foreign: summary?.foreign || {},
+    money: summary?.money || {},
+    family: summary?.family || {},
+    health: summary?.health || {},
+    conflict: summary?.conflict || {}
+  };
+}
+
+function extractNameRashi(identityPacket = {}) {
+  return (
+    identityPacket?.name_rashi_packet ||
+    identityPacket?.rashi_packet ||
+    identityPacket?.derived_rashi ||
+    identityPacket?.name_profile?.derived_rashi ||
+    identityPacket?.name_profile ||
+    {}
+  );
+}
+
+function extractNumerology(identityPacket = {}) {
+  return (
+    identityPacket?.numerology_packet ||
+    identityPacket?.numerology ||
+    identityPacket?.name_profile?.numerology ||
+    {}
+  );
+}
+
+function compactPayloadFromFull(full, limit = 3) {
+  const identity = full.identity_packet || {};
+  const eventSummary = full.event_summary || {};
+  const topDomains = safeArray(full.top_ranked_domains).slice(0, 4);
+
   return {
     engine_status: full.engine_status,
-    provider_state: full.provider_state,
     system_status: full.system_status,
     mode: full.mode,
+    output_format: "compact",
     subject_mode: full.subject_mode,
     identity_depth: full.identity_depth,
     precision_mode: full.precision_mode,
-    timeline_collapse: full.timeline_collapse,
-    fact_anchor_merge: full.fact_anchor_merge,
-    truth_summary: full.truth_summary,
-    validation_layer: full.validation_layer,
-    validation_block: full.validation_block,
-    identity_packet: full.identity_packet,
-    delivery_safe_packet: full.delivery_safe_packet,
-    exact_domain_summary: full.exact_domain_summary,
-    event_summary: full.event_summary,
-    forensic_verdict: full.forensic_verdict,
-    lokkotha_summary: full.lokkotha_summary
+
+    input_normalized: smallObj(full.input_normalized, ["name", "dob", "tob", "pob", "question", "facts"]),
+
+    identity_packet: identity,
+    name_rashi_packet: extractNameRashi(identity),
+    numerology_packet: extractNumerology(identity),
+
+    event_summary: buildDomainOutcomes(eventSummary),
+    master_timeline_compact: pickTopTimeline(full.master_timeline, limit),
+
+    domain_outcomes: {
+      top_domains: topDomains
+    },
+
+    validation_summary: {
+      validation_status:
+        full?.validation_block?.validation_status ||
+        full?.validation_layer?.validation_status ||
+        full?.validation_layer?.status ||
+        null,
+      truth_level: full?.truth_summary?.truth_level || null
+    },
+
+    forensic_verdict: full.forensic_verdict || {},
+    lokkotha_summary: full.lokkotha_summary || {},
+
+    compact_notice:
+      "GPT-safe compact packet: identity, rashi, numerology, strongest events, domain outcomes, verdict only."
+  };
+}
+
+function projectPayloadFromFull(full) {
+  return {
+    ...compactPayloadFromFull(full, 5),
+    output_format: "project"
   };
 }
 
 export default async function handler(req, res) {
   try {
     const q = req.query || {};
+    const requestedFormat = normalizeFormat(q.format);
 
     const input = {
       name: str(q.name),
@@ -270,7 +349,7 @@ export default async function handler(req, res) {
       timezone_offset: str(q.timezone_offset || "+06:00"),
       question: str(q.question),
       facts: str(q.facts),
-      format: normalizeFormat(q.format),
+      format: requestedFormat,
       current_datetime_iso: str(q.current_datetime_iso)
     };
 
@@ -282,7 +361,7 @@ export default async function handler(req, res) {
       return res.status(400).json({
         engine_status: ENGINE_STATUS,
         system_status: "INPUT_ERROR",
-        message: "Provide at least a name, DOB, or facts."
+        error_message: "Provide at least a name, DOB, or facts."
       });
     }
 
@@ -498,26 +577,11 @@ export default async function handler(req, res) {
     };
 
     if (input.format === "compact") {
-      return res.status(200).json(compactPayloadFromFull(fullPayload));
+      return res.status(200).json(compactPayloadFromFull(fullPayload, 3));
     }
 
     if (input.format === "project") {
-      return res.status(200).json({
-        engine_status: ENGINE_STATUS,
-        output_format: "project",
-        subject_mode: fullPayload.subject_mode,
-        identity_depth: fullPayload.identity_depth,
-        precision_mode: fullPayload.precision_mode,
-        timeline_collapse: fullPayload.timeline_collapse,
-        fact_anchor_merge: fullPayload.fact_anchor_merge,
-        truth_summary,
-        validation_layer,
-        validation_block,
-        identity_packet,
-        delivery_safe_packet,
-        event_summary,
-        project_paste_block
-      });
+      return res.status(200).json(projectPayloadFromFull(fullPayload));
     }
 
     return res.status(200).json(fullPayload);
